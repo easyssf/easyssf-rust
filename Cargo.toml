@@ -1,0 +1,64 @@
+[workspace]
+resolver = "3"
+members = [
+    "easyssf-core",
+    "easyssf-receiver",
+    "easyssf-receiver-sqlx",
+    "easyssf-receiver-axum",
+    "easyssf-receiver-actix-web",
+    "easyssf-test",
+]
+
+[workspace.package]
+version = "0.7.0-alpha.1"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/easyssf/easyssf-rust"
+homepage = "https://easyssf.org"
+keywords = ["ssf", "caep", "risc", "openid", "security-events"]
+categories = ["authentication", "web-programming"]
+
+[workspace.dependencies]
+easyssf-core = { path = "easyssf-core", version = "0.7.0-alpha.1" }
+easyssf-receiver = { path = "easyssf-receiver", version = "0.7.0-alpha.1", default-features = false }
+easyssf-receiver-sqlx = { path = "easyssf-receiver-sqlx", version = "0.7.0-alpha.1" }
+easyssf-test = { path = "easyssf-test", version = "0.7.0-alpha.1" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+jsonwebtoken = { version = "11", default-features = false }
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+tokio-util = { version = "0.7", default-features = false }
+tracing = "0.1"
+thiserror = "2"
+subtle = "2"
+async-trait = "0.1"
+url = { version = "2", features = ["serde"] }
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+humantime-serde = "1"
+reqwest = { version = "0.13", default-features = false }
+metrics = "0.24"
+axum = { version = "0.8", default-features = false }
+tower = "0.5"
+http = "1"
+http-body-util = "0.1"
+tower-sessions = { version = "0.15", default-features = false }
+actix-web = { version = "4.16", default-features = false }
+actix-session = "0.11"
+sqlx = { version = "0.9", default-features = false }
+rsa = "0.9"
+rand = "0.8"
+futures-util = { version = "0.3", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
+
+# RSA key generation of the TestTransmitter is slow unoptimized
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.test.package.num-bigint-dig]
+opt-level = 3

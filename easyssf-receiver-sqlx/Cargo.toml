@@ -1,0 +1,39 @@
+[package]
+name = "easyssf-receiver-sqlx"
+description = "The database stores of the easyssf receiver on sqlx: processed SETs, revocations and poll acknowledgements, in the tables shared with the Java and .NET libraries."
+version.workspace = true
+edition.workspace = true
+rust-version = "1.94"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**", "sql/**", "Cargo.toml", "README.md"]
+
+[dependencies]
+easyssf-core.workspace = true
+easyssf-receiver.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+sqlx = { workspace = true, features = ["runtime-tokio"] }
+futures-util.workspace = true
+
+[features]
+default = ["sqlite"]
+sqlite = ["sqlx/sqlite"]
+postgres = ["sqlx/postgres", "sqlx/tls-rustls-ring"]
+mysql = ["sqlx/mysql", "sqlx/tls-rustls-ring"]
+
+[dev-dependencies]
+easyssf-test.workspace = true
+serde_json.workspace = true
+url.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+toml = "0.9"
+
+[lints]
+workspace = true

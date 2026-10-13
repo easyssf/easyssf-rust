@@ -1,0 +1,33 @@
+[package]
+name = "easyssf-test"
+description = "Test support for SSF receivers: a transmitter that signs SETs, serves its metadata and JWK Set, hands out access tokens and emulates stream management and polling, in-process."
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+# the crypto backend of jsonwebtoken, shared with easyssf-receiver; exactly one
+default = ["rust-crypto"]
+rust-crypto = ["easyssf-receiver/rust-crypto"]
+aws-lc-rs = ["easyssf-receiver/aws-lc-rs"]
+
+[dependencies]
+easyssf-core.workspace = true
+easyssf-receiver.workspace = true
+serde_json.workspace = true
+jsonwebtoken = { workspace = true, features = ["use_pem"] }
+rsa.workspace = true
+rand.workspace = true
+base64.workspace = true
+uuid.workspace = true
+url.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+
+[lints]
+workspace = true

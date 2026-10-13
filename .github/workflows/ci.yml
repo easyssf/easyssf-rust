@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: Format, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy-all
+      - run: cargo test-all
+      - run: cargo doc-all
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  msrv:
+    name: Minimum Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # easyssf-receiver-sqlx needs 1.94 (sqlx 0.9); the other crates build on 1.88
+      - uses: dtolnay/rust-toolchain@1.94
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --features easyssf-receiver/metrics,easyssf-receiver-sqlx/postgres,easyssf-receiver-sqlx/mysql
+
+  database:
+    name: Stores on PostgreSQL and MySQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: easyssf
+          POSTGRES_PASSWORD: easyssf
+          POSTGRES_DB: easyssf
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_USER: easyssf
+          MYSQL_PASSWORD: easyssf
+          MYSQL_DATABASE: easyssf
+          MYSQL_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test -p easyssf-receiver-sqlx --features postgres,mysql --test stores
+        env:
+          EASYSSF_DATABASE_TESTS: "true"
+          EASYSSF_POSTGRES_URL: postgres://easyssf:easyssf@127.0.0.1:5432/easyssf
+          EASYSSF_MYSQL_URL: mysql://easyssf:easyssf@127.0.0.1:3306/easyssf
+
+  schema:
+    name: Shared SQL files match the Java library
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: easyssf/easyssf
+          path: java
+      - run: |
+          diff java/easyssf-receiver-jdbc/src/main/resources/org/easyssf/receiver/jdbc/schema.sql easyssf-receiver-sqlx/sql/schema.sql
+          diff -r java/easyssf-receiver-jdbc/src/main/resources/org/easyssf/receiver/jdbc/migration easyssf-receiver-sqlx/sql/migration

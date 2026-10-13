@@ -1,0 +1,10 @@
+# cargo-deny: licenses and advisories, see https://embarkstudios.github.io/cargo-deny/
+
+[licenses]
+allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib", "MPL-2.0", "OpenSSL", "CDLA-Permissive-2.0"]
+
+[advisories]
+# RUSTSEC-2023-0071 (rsa, Marvin attack) concerns private-key operations, which a receiver never
+# performs: the `rust-crypto` backend of jsonwebtoken only verifies. Choose the `aws-lc-rs`
+# feature of easyssf-receiver to leave the rsa crate out.
+ignore = ["RUSTSEC-2023-0071"]

@@ -1,0 +1,6 @@
+# `--all-features` is never valid here: easyssf-receiver has two crypto backends of which exactly
+# one may be on. These aliases enable every optional feature that can be on at the same time.
+[alias]
+test-all = "test --workspace --features easyssf-receiver/metrics,easyssf-receiver-axum/tower-sessions,easyssf-receiver-actix-web/actix-session,easyssf-receiver-sqlx/postgres,easyssf-receiver-sqlx/mysql"
+clippy-all = "clippy --workspace --all-targets --features easyssf-receiver/metrics,easyssf-receiver-axum/tower-sessions,easyssf-receiver-actix-web/actix-session,easyssf-receiver-sqlx/postgres,easyssf-receiver-sqlx/mysql"
+doc-all = "doc --workspace --no-deps --features easyssf-receiver/metrics,easyssf-receiver-axum/tower-sessions,easyssf-receiver-actix-web/actix-session,easyssf-receiver-sqlx/postgres,easyssf-receiver-sqlx/mysql"
