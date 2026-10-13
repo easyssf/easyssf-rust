@@ -32,14 +32,14 @@ let app = Router::new().merge(push_router_for(&receiver)); // POST /ssf/push
 
 ## Crates
 
-| Crate | Holds | Java module | .NET project |
-|---|---|---|---|
-| `easyssf-core` | The vocabulary: SETs, subjects, event types with aliases, the typed CAEP, RISC and SCIM events, stream configuration, transmitter metadata | `easyssf-core` | `EasySsf.Core` |
-| `easyssf-receiver` | The receiver without a web framework: verification, de-duplication with a lease, push and poll, stream management, typed handlers, token revocation, session termination, metrics; the configuration types and `SsfReceiver`, which assembles a receiver from them | `easyssf-receiver`, plus the factory half of the Spring autoconfigure module | `EasySsf.Receiver`, `EasySsf.Receiver.Hosting` |
-| `easyssf-receiver-axum` | `push_router_for()`, `SsfRevocationLayer` for resource servers, `SsfSessionRevocationLayer` for tower-sessions | Spring autoconfigure (web half) | `EasySsf.Receiver.AspNetCore` |
-| `easyssf-receiver-actix-web` | `configure_push_for()`, `SsfRevocation` middleware, `SsfSessionRevocation` for actix-session | none | none |
-| `easyssf-receiver-sqlx` | The three tables shared with Java and .NET, on SQLite, PostgreSQL and MySQL | `easyssf-receiver-jdbc` | `EasySsf.Receiver.Data` |
-| `easyssf-test` | `TestTransmitter`: signs SETs, serves metadata and the JWK Set, issues access tokens, emulates stream management and polling, in-process through the receiver's HTTP client trait | `easyssf-test` | `EasySsf.Testing` |
+| Crate | Holds |
+|---|---|
+| `easyssf-core` | The vocabulary: SETs, subjects, event types with aliases, the typed CAEP, RISC and SCIM events, stream configuration, transmitter metadata |
+| `easyssf-receiver` | The receiver without a web framework: verification, de-duplication with a lease, push and poll, stream management, typed handlers, token revocation, session termination, metrics; the configuration types and `SsfReceiver`, which assembles a receiver from them |
+| `easyssf-receiver-axum` | `push_router_for()`, `SsfRevocationLayer` for resource servers, `SsfSessionRevocationLayer` for tower-sessions |
+| `easyssf-receiver-actix-web` | `configure_push_for()`, `SsfRevocation` middleware, `SsfSessionRevocation` for actix-session |
+| `easyssf-receiver-sqlx` | The three tables shared with Java and .NET, on SQLite, PostgreSQL and MySQL |
+| `easyssf-test` | `TestTransmitter`: signs SETs, serves metadata and the JWK Set, issues access tokens, emulates stream management and polling, in-process through the receiver's HTTP client trait |
 
 Rocket, Poem, Salvo and warp need no crate: read the `Authorization` header and the body, call
 `SsfPushHandler::handle`, answer with its status and body (see [Plain Rust](#plain-rust)).
