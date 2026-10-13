@@ -1,0 +1,29 @@
+[package]
+name = "example-resource-server"
+description = "Example: a resource server that rejects the access tokens of sessions Keycloak revoked. Not published."
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+publish = false
+
+[dependencies]
+example-support.workspace = true
+easyssf-core.workspace = true
+# the workspace dependency turns the default features off; the crypto backend and the HTTP client
+# that calls Keycloak are needed here
+easyssf-receiver = { workspace = true, features = ["rust-crypto", "reqwest", "metrics"] }
+easyssf-receiver-axum.workspace = true
+axum = { workspace = true, features = ["tokio", "http1", "json"] }
+http.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal"] }
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+jsonwebtoken.workspace = true
+reqwest = { workspace = true, features = ["rustls", "charset", "http2", "json"] }
+humantime = "2"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
+
+[lints]
+workspace = true

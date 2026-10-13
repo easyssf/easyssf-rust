@@ -29,6 +29,7 @@ Cargo workspace, edition 2024. Crates, in dependency order:
 | `easyssf-receiver-sqlx` | The three database stores, the schema and migrations, `SsfSqlStores` | receiver, `sqlx` |
 | `easyssf-receiver-axum` | Push route, `SsfRevocationLayer`, the tower-sessions layer | receiver, `axum`, `tower` |
 | `easyssf-receiver-actix-web` | `configure_push`, `SsfRevocation`, the actix-session middleware | receiver, `actix-web` |
+| `examples/*` | The port of the Spring Boot examples (resource server, OIDC client, SCIM provisioning, Keycloak compose), not published; see `examples/AGENTS.md` | receiver, axum crate, test |
 
 New protocol behaviour goes into `easyssf-receiver`, new vocabulary into `easyssf-core`, framework
 code only into the framework crates.
@@ -50,6 +51,10 @@ RUSTDOCFLAGS="-D warnings" cargo doc-all
   dependency graph, so `easyssf-test` does not pin a backend either; its own default is
   `rust-crypto`, switch both crates together.
 
+- The examples are workspace members and build with everything else; only
+  `example-scim-provisioning` has tests, and they run in-process. The two Keycloak examples are
+  verified by hand against the compose setup in `examples/keycloak`, see `examples/AGENTS.md`
+  before starting it.
 - The tests need no network and no Docker: `TestTransmitter` answers in-process and the sqlx tests
   run on SQLite in memory. `EASYSSF_DATABASE_TESTS=true` with `EASYSSF_POSTGRES_URL` and
   `EASYSSF_MYSQL_URL` runs the store tests on those databases as well (CI does, in the `database`

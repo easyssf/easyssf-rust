@@ -1,0 +1,35 @@
+# The configuration of the SCIM provisioning example.
+
+[server]
+# SERVER_PORT overrides the port
+port = ${SERVER_PORT:8083}
+
+[easyssf.receiver]
+# The transmitter is the demo transmitter the application starts itself (Keycloak does not emit
+# SCIM Events): main sets transmitter-issuer to its address. For a real SCIM service provider, set
+# transmitter-issuer, the token and the delivery method here.
+transmitter-access-token = "transmitter-access-token"
+delivery-method = "poll"
+
+[easyssf.receiver.poll]
+interval = "2s"
+initial-delay = "1s"
+
+# the application registers its own POLL stream on startup and asks for the SCIM Events it mirrors;
+# the transmitter assigns the audience of the SETs
+[easyssf.receiver.stream]
+management = "receiver"
+events-requested = [
+    "ScimFeedAdd",
+    "ScimFeedRemove",
+    "ScimProvCreateFull",
+    "ScimProvCreateNotice",
+    "ScimProvPatchFull",
+    "ScimProvPatchNotice",
+    "ScimProvPutFull",
+    "ScimProvPutNotice",
+    "ScimProvDelete",
+    "ScimProvActivate",
+    "ScimProvDeactivate",
+]
+description = "example-scim-provisioning"

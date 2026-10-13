@@ -1,0 +1,30 @@
+[package]
+name = "example-scim-provisioning"
+description = "Example: mirrors the users of a SCIM service provider from its SCIM Events (RFC 9967), with a demo transmitter of its own. Not published."
+version.workspace = true
+edition.workspace = true
+rust-version = "1.88"
+license.workspace = true
+publish = false
+
+[dependencies]
+example-support.workspace = true
+easyssf-core.workspace = true
+# the workspace dependency turns the default features off; the crypto backend and the HTTP client
+# that calls Keycloak are needed here
+easyssf-receiver = { workspace = true, features = ["rust-crypto", "reqwest"] }
+easyssf-test.workspace = true
+axum = { workspace = true, features = ["tokio", "http1", "json", "query"] }
+http.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal"] }
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "macros"] }
+
+[lints]
+workspace = true

@@ -244,8 +244,14 @@ has to reject.
   plans and scenarios. The receiver is tested by the ported unit and integration tests; the four
   OpenID plans are the next step.
 - OpenTelemetry metrics: the `metrics` facade is in, an OTel exporter bridges onto it.
-- The OIDC client and SCIM provisioning examples against Keycloak.
 - A transmitter. `easyssf-core` is written to be shared with one.
+
+## Examples
+
+[`examples/`](examples) has the port of the Spring Boot examples: a resource server and an OIDC
+client on axum that receive events from a Keycloak transmitter (with the Docker Compose setup for
+Keycloak), and a SCIM provisioning example that mirrors `Users` from SCIM Events against the
+in-process `TestTransmitter`. See [`examples/README.md`](examples/README.md).
 
 ## Build
 
@@ -253,6 +259,7 @@ has to reject.
 cargo test-all                                   # every feature that can be on at once, see .cargo/config.toml
 cargo clippy-all
 cargo run -p easyssf-receiver-axum --example resource_server
+cargo run -p example-scim-provisioning            # the SCIM example, no Keycloak needed
 ```
 
 The sqlx tests run on SQLite always and on PostgreSQL and MySQL when `EASYSSF_DATABASE_TESTS=true`

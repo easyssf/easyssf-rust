@@ -1,0 +1,2 @@
+# dev database of the Keycloak container, see compose.yaml
+data/

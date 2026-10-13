@@ -36,3 +36,10 @@ All notable changes to this project will be documented in this file. The format 
   cleanup of expired rows and `SsfSqlStores` from the configuration.
 - `easyssf-test`: `TestTransmitter` with metadata, JWK Set, token endpoint, stream management and
   poll endpoint in-process, and `eventually` / `during` for tests of background behaviour.
+- `examples/`: the port of the Spring Boot examples, not published: `example-resource-server`
+  (access tokens of revoked Keycloak sessions are rejected, `poll` profile, Prometheus metrics),
+  `example-oidc-client` (OIDC login on tower-sessions, local sessions end on `session-revoked` and
+  `credential-change`), `example-scim-provisioning` (SCIM `Users` mirrored from SCIM Events of the
+  in-process `TestTransmitter`, with the demo service provider under `/demo/scim` and its tests),
+  the Keycloak compose setup and `example-support` for `config.toml` with `${VAR:default}`
+  placeholders and profiles.

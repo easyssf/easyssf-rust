@@ -1,0 +1,43 @@
+# The configuration of the example resource server. `${VAR:default}` reads the environment variable
+# VAR and falls back to the default, like the placeholders of application.yaml in the Java example.
+
+[server]
+# SERVER_PORT overrides the port
+port = ${SERVER_PORT:8081}
+
+[keycloak]
+# the realm of the Keycloak in ../keycloak; KEYCLOAK_ISSUER overrides it
+issuer = "${KEYCLOAK_ISSUER:http://localhost:8080/realms/ssf-demo}"
+
+[easyssf.receiver]
+# Keycloak is both the issuer of the access tokens and the SSF transmitter
+transmitter-issuer = "${KEYCLOAK_ISSUER:http://localhost:8080/realms/ssf-demo}"
+
+# the application registers its own PUSH stream on startup, Keycloak assigns the audience
+[easyssf.receiver.stream]
+management = "receiver"
+events-requested = ["CaepSessionRevoked"]
+description = "example-resource-server"
+
+[easyssf.receiver.push]
+endpoint-path = "/ssf/push"
+# how Keycloak (in Docker) reaches the push endpoint, must be allowed by 'ssf.validPushUrls' of the
+# client; SSF_PUSH_URL overrides it
+delivery-endpoint-url = "${SSF_PUSH_URL:http://host.docker.internal:8081/ssf/push}"
+# the stream is created with this authorization header, Keycloak sends it with every SET
+expected-auth-header = "Bearer example-resource-server-push-secret"
+
+# the service account of the client manages the stream; KEYCLOAK_CLIENT_SECRET overrides the secret
+[easyssf.receiver.oauth2]
+token-uri = "${KEYCLOAK_ISSUER:http://localhost:8080/realms/ssf-demo}/protocol/openid-connect/token"
+client-id = "example-resource-server"
+client-secret = "${KEYCLOAK_CLIENT_SECRET:example-resource-server-secret}"
+scopes = ["ssf.read", "ssf.manage"]
+
+[easyssf.receiver.revocation]
+# at least the access token lifespan of the realm (5 minutes by default)
+ttl = "10m"
+
+# the receiver records easyssf.receiver.* with the `metrics` facade; GET /metrics renders them
+[easyssf.receiver.metrics]
+enabled = true

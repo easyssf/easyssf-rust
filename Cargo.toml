@@ -7,6 +7,11 @@ members = [
     "easyssf-receiver-axum",
     "easyssf-receiver-actix-web",
     "easyssf-test",
+    # the example applications, not published
+    "examples/example-support",
+    "examples/example-resource-server",
+    "examples/example-oidc-client",
+    "examples/example-scim-provisioning",
 ]
 
 [workspace.package]
@@ -23,6 +28,8 @@ easyssf-core = { path = "easyssf-core", version = "0.7.0-alpha.1" }
 easyssf-receiver = { path = "easyssf-receiver", version = "0.7.0-alpha.1", default-features = false }
 easyssf-receiver-sqlx = { path = "easyssf-receiver-sqlx", version = "0.7.0-alpha.1" }
 easyssf-test = { path = "easyssf-test", version = "0.7.0-alpha.1" }
+easyssf-receiver-axum = { path = "easyssf-receiver-axum", version = "0.7.0-alpha.1" }
+example-support = { path = "examples/example-support" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 jsonwebtoken = { version = "11", default-features = false }

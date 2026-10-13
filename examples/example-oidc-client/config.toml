@@ -1,0 +1,51 @@
+# The configuration of the example OIDC client. `${VAR:default}` reads the environment variable
+# VAR and falls back to the default, like the placeholders of application.yaml in the Java example.
+
+[server]
+# SERVER_PORT overrides the port
+port = ${SERVER_PORT:8082}
+# the URL users open; the redirect URI of the login and the post-logout redirect URI derive from
+# it and have to be allowed by the client 'example-oidc-client' in Keycloak
+base-url = "http://localhost:8082"
+
+[keycloak]
+# the realm of the Keycloak in ../keycloak; KEYCLOAK_ISSUER and KEYCLOAK_CLIENT_SECRET override
+# the issuer and the secret
+issuer = "${KEYCLOAK_ISSUER:http://localhost:8080/realms/ssf-demo}"
+client-id = "example-oidc-client"
+client-secret = "${KEYCLOAK_CLIENT_SECRET:example-oidc-client-secret}"
+scopes = ["openid", "profile", "email"]
+
+[easyssf.receiver]
+# Keycloak is both the identity provider and the SSF transmitter
+transmitter-issuer = "${KEYCLOAK_ISSUER:http://localhost:8080/realms/ssf-demo}"
+
+# the application registers its own PUSH stream on startup, Keycloak assigns the audience
+[easyssf.receiver.stream]
+management = "receiver"
+events-requested = ["CaepSessionRevoked", "CaepCredentialChange"]
+description = "example-oidc-client"
+
+[easyssf.receiver.push]
+endpoint-path = "/ssf/push"
+# how Keycloak (in Docker) reaches the push endpoint, must be allowed by 'ssf.validPushUrls' of the
+# client; SSF_PUSH_URL overrides it
+delivery-endpoint-url = "${SSF_PUSH_URL:http://host.docker.internal:8082/ssf/push}"
+# the stream is created with this authorization header, Keycloak sends it with every SET
+expected-auth-header = "Bearer example-oidc-client-push-secret"
+
+# the service account of the client manages the stream
+[easyssf.receiver.oauth2]
+token-uri = "${KEYCLOAK_ISSUER:http://localhost:8080/realms/ssf-demo}/protocol/openid-connect/token"
+client-id = "example-oidc-client"
+client-secret = "${KEYCLOAK_CLIENT_SECRET:example-oidc-client-secret}"
+scopes = ["ssf.read", "ssf.manage"]
+
+# Which events end local sessions (alias or event type URI, these are the defaults). Keycloak only
+# delivers the events the stream requested. session-event-types end the session named by the event,
+# or all sessions of the user if it names none; user-event-types end all sessions of the user. The
+# TTL has to cover the lifetime of the local sessions.
+[easyssf.receiver.revocation]
+session-event-types = ["CaepSessionRevoked"]
+user-event-types = ["CaepCredentialChange"]
+ttl = "14d"
