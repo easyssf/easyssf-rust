@@ -43,9 +43,29 @@ impl TestClock {
     }
 }
 
+/// Serialises the tests on PostgreSQL and MySQL: cargo runs the tests in parallel, and these two
+/// databases are shared by all of them, each dropping and creating the same tables. SQLite is in
+/// memory and private to the test, so the default run stays parallel.
+static SHARED_DATABASES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// The databases of one test, holding the lock on the shared ones until the test is done with them.
+struct Databases {
+    databases: std::vec::IntoIter<(&'static str, Arc<dyn SsfSqlOperations>)>,
+    _shared: Option<tokio::sync::MutexGuard<'static, ()>>,
+}
+
+impl Iterator for Databases {
+    type Item = (&'static str, Arc<dyn SsfSqlOperations>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.databases.next()
+    }
+}
+
 /// Every database the tests run on: SQLite in memory always, the others when opted in.
-async fn databases() -> Vec<(&'static str, Arc<dyn SsfSqlOperations>)> {
+async fn databases() -> Databases {
     let mut all: Vec<(&'static str, Arc<dyn SsfSqlOperations>)> = Vec::new();
+    let mut shared = None;
     let sqlite = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
         .connect("sqlite::memory:")
@@ -53,6 +73,7 @@ async fn databases() -> Vec<(&'static str, Arc<dyn SsfSqlOperations>)> {
         .unwrap();
     all.push(("sqlite", Arc::new(SqlxSsfSqlOperations::sqlite(sqlite))));
     if std::env::var("EASYSSF_DATABASE_TESTS").ok().as_deref() == Some("true") {
+        shared = Some(SHARED_DATABASES.lock().await);
         #[cfg(feature = "postgres")]
         if let Ok(url) = std::env::var("EASYSSF_POSTGRES_URL") {
             let pool = sqlx::postgres::PgPoolOptions::new()
@@ -74,7 +95,10 @@ async fn databases() -> Vec<(&'static str, Arc<dyn SsfSqlOperations>)> {
             all.push(("mysql", Arc::new(SqlxSsfSqlOperations::mysql(pool))));
         }
     }
-    all
+    Databases {
+        databases: all.into_iter(),
+        _shared: shared,
+    }
 }
 
 #[allow(dead_code)]
