@@ -1,15 +1,18 @@
-//! A resource server: every request to the API needs an access token issued by Keycloak. The SSF
-//! receiver adds the push endpoint and rejects the access tokens of sessions that were revoked in
-//! Keycloak. Keycloak is both the issuer of the access tokens and the SSF transmitter.
+//! A resource server: every request to the API needs an access token of the identity provider.
+//! The SSF receiver adds the push endpoint and rejects the access tokens of sessions the identity
+//! provider revoked. The identity provider is both the issuer of the access tokens and the SSF
+//! transmitter: any transmitter that supports CAEP session-revoked events does; the defaults fit
+//! the Keycloak of `examples/keycloak`.
 //!
 //! ```sh
 //! cargo run -p example-resource-server                     # PUSH stream of example-resource-server
 //! cargo run -p example-resource-server -- --profile poll   # POLL stream of example-poll-receiver
 //! ```
 //!
-//! The application contains no SSF code apart from the configuration in `config.toml` and the
-//! auditing handler that logs the events; `auth.rs` validates the access tokens, which Spring
-//! Security does for the Java example.
+//! `SSF_TRANSMITTER_ISSUER`, `SSF_TOKEN_URI`, `SSF_CLIENT_ID`, `SSF_CLIENT_SECRET` and
+//! `SSF_PUSH_URL` override the defaults of `config.toml`. The application contains no SSF code
+//! apart from that configuration and the auditing handler that logs the events; `auth.rs`
+//! validates the access tokens, which Spring Security does for the Java example.
 
 mod auth;
 mod handler;
@@ -31,7 +34,7 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::auth::{AccessToken, KeycloakAccessTokens};
+use crate::auth::{AccessToken, AccessTokens};
 use crate::handler::AuditingSsfEventHandler;
 
 const CONFIG: &str = include_str!("../config.toml");
@@ -48,11 +51,6 @@ impl Default for ServerConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct KeycloakConfig {
-    issuer: String,
-}
-
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
     example_support::init_tracing("info,easyssf=debug,example_resource_server=debug");
@@ -64,20 +62,25 @@ async fn main() -> Result<(), BoxError> {
     };
     let settings = example_support::load(&sources)?;
     let server: ServerConfig = example_support::section(&settings, "server")?;
-    let keycloak: KeycloakConfig = example_support::section(&settings, "keycloak")?;
     let config: SsfReceiverConfig = example_support::section(&settings, "easyssf.receiver")?;
+    // the transmitter is the identity provider: its access tokens are the ones the API accepts
+    let issuer = config
+        .transmitter
+        .issuer()
+        .ok_or("easyssf.receiver.transmitter-issuer is required")?
+        .to_owned();
 
     // the receiver records easyssf.receiver.* with the `metrics` facade, the Prometheus exporter
     // renders them for GET /metrics (the Actuator endpoint of the Java example)
     let metrics = PrometheusBuilder::new().install_recorder()?;
 
-    // the receiver: the push endpoint, the stream at Keycloak, the revocation store and the
-    // handler that revokes the access tokens, plus the application's own handler
+    // the receiver: the push endpoint, the stream at the transmitter, the revocation store and
+    // the handler that revokes the access tokens, plus the application's own handler
     let receiver = Arc::new(SsfReceiver::builder(config).handler(AuditingSsfEventHandler).build()?);
     receiver.start();
 
-    // validates the access tokens of Keycloak and leaves their claims on the request
-    let access_tokens = Arc::new(KeycloakAccessTokens::new(&keycloak.issuer));
+    // validates the access tokens of the identity provider and leaves their claims on the request
+    let access_tokens = Arc::new(AccessTokens::new(&issuer));
     // rejects the access tokens of revoked sessions and users: reads the claims the
     // authentication left on the request and looks them up in the revocation store
     let revocation = SsfRevocationLayer::new(receiver.token_revocation_store(), |parts: &Parts| {
@@ -105,7 +108,7 @@ async fn main() -> Result<(), BoxError> {
                 async move { health(&receiver).await }
             }),
         )
-        // the push endpoint Keycloak delivers to, at easyssf.receiver.push.endpoint-path
+        // the push endpoint the transmitter delivers to, at easyssf.receiver.push.endpoint-path
         .merge(push_router_for(&receiver));
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", server.port))

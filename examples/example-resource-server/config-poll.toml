@@ -1,5 +1,5 @@
 # Profile 'poll': instead of registering a PUSH stream for its own client, the application uses the
-# client 'example-poll-receiver', registers a POLL stream for it and polls Keycloak for events.
+# client 'example-poll-receiver', registers a POLL stream for it and polls the transmitter for events.
 #
 #   cargo run -p example-resource-server -- --profile poll
 
@@ -12,8 +12,8 @@ description = "example-resource-server (poll)"
 [easyssf.receiver.poll]
 interval = "2s"
 
-# the service account of the client 'example-poll-receiver' in Keycloak; KEYCLOAK_POLL_CLIENT_SECRET
-# overrides the secret
+# a second client, with a POLL stream the application polls; SSF_CLIENT_ID and SSF_CLIENT_SECRET
+# override the defaults, which are the client of the ssf-demo realm
 [easyssf.receiver.oauth2]
-client-id = "example-poll-receiver"
-client-secret = "${KEYCLOAK_POLL_CLIENT_SECRET:example-poll-receiver-secret}"
+client-id = "${SSF_CLIENT_ID:example-poll-receiver}"
+client-secret = "${SSF_CLIENT_SECRET:example-poll-receiver-secret}"

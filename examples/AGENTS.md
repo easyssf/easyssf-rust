@@ -13,10 +13,12 @@ walks through running them.
   token validation, OIDC login) is application code here, in `auth.rs` and `oidc.rs`. The SCIM
   example's handler is application logic (what to do with a provisioning event), that is fine.
 - `config.toml` mirrors `application.yaml` of the Java example: the `easyssf.receiver` section
-  deserializes into `SsfReceiverConfig`, `${VAR:default}` reads the environment (same variable
-  names as the Java and .NET examples: `KEYCLOAK_ISSUER`, `KEYCLOAK_CLIENT_SECRET`,
-  `KEYCLOAK_POLL_CLIENT_SECRET`, `SSF_PUSH_URL`, plus `SERVER_PORT`). The `poll` profile is
-  `config-poll.toml` merged over it (`--profile poll`).
+  deserializes into `SsfReceiverConfig`, `${VAR:default}` reads the environment, nested in a
+  default too. The resource server is transmitter-agnostic like the Go one and reads
+  `SSF_TRANSMITTER_ISSUER`, `SSF_TOKEN_URI`, `SSF_CLIENT_ID`, `SSF_CLIENT_SECRET` and `SSF_PUSH_URL`;
+  the OIDC client keeps the variable names of the Java and .NET examples (`KEYCLOAK_ISSUER`,
+  `KEYCLOAK_CLIENT_SECRET`, `SSF_PUSH_URL`); both read `SERVER_PORT`. The `poll` profile of the
+  resource server is `config-poll.toml` merged over `config.toml` (`--profile poll`).
 - `example-scim-provisioning` has the only tests among the examples; they start the application
   against a `TestTransmitter` on a random port and poll every 200 ms. The demo SCIM service
   provider under `/demo/scim` (and the scripted play, `--demo.autoplay=false` turns it off),

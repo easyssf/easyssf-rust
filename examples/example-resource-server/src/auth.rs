@@ -1,4 +1,4 @@
-//! Validates the access tokens of Keycloak, the part Spring Security's resource server support
+//! Validates the access tokens of the identity provider, the part Spring Security's resource server support
 //! plays in the Java example: the signature against the keys of the issuer (found through OpenID
 //! Connect discovery), `iss` and `exp`. The claims are left on the request as [`AccessToken`] for
 //! the handlers and as [`SsfTokenClaims`] for the revocation layer of the receiver, which reads
@@ -49,8 +49,8 @@ impl AccessToken {
 
 /// Validates access tokens of one issuer with the keys of its `jwks_uri`. The keys are loaded on
 /// first use and again, at most every ten seconds, when a token names a key that is not known:
-/// Keycloak rotates them.
-pub struct KeycloakAccessTokens {
+/// identity providers rotate them.
+pub struct AccessTokens {
     issuer: String,
     http: reqwest::Client,
     keys: RwLock<Option<Keys>>,
@@ -73,7 +73,7 @@ const ACCEPTED_ALGORITHMS: [Algorithm; 9] = [
     Algorithm::EdDSA,
 ];
 
-impl KeycloakAccessTokens {
+impl AccessTokens {
     /// Validates the tokens `issuer` signs.
     pub fn new(issuer: &str) -> Self {
         Self {
@@ -97,7 +97,8 @@ impl KeycloakAccessTokens {
         let key = DecodingKey::from_jwk(&jwk).map_err(|error| format!("unusable key {kid}: {error}"))?;
         let mut validation = Validation::new(header.alg);
         validation.set_issuer(&[&self.issuer]);
-        // the access tokens of Keycloak carry the audience 'account' unless a mapper adds one
+        // which audience an access token carries depends on the identity provider and its
+        // configuration, so this example does not check it; a real resource server does
         validation.validate_aud = false;
         validation.leeway = 30;
         let data = jsonwebtoken::decode::<Map<String, Value>>(token, &key, &validation)
@@ -160,7 +161,7 @@ impl KeycloakAccessTokens {
 /// Requires a valid access token in the `Authorization` header and leaves its claims on the
 /// request; answers 401 with a `WWW-Authenticate` challenge (RFC 6750) otherwise.
 pub async fn require_access_token(
-    State(tokens): State<Arc<KeycloakAccessTokens>>,
+    State(tokens): State<Arc<AccessTokens>>,
     mut request: Request,
     next: Next,
 ) -> Response {

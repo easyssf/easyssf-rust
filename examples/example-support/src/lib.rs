@@ -9,15 +9,16 @@ use serde::de::DeserializeOwned;
 use toml::{Table, Value};
 
 /// Replaces `${NAME}` and `${NAME:default}` with the environment variable `NAME`, or with the
-/// default when the variable is not set or empty. A placeholder without a default whose variable
-/// is not set stays as it is.
+/// default when the variable is not set or empty. A default may contain placeholders of its own
+/// (`${SSF_TOKEN_URI:${SSF_TRANSMITTER_ISSUER:http://localhost:8080}/token}`). A placeholder
+/// without a default whose variable is not set stays as it is.
 pub fn expand_placeholders(text: &str) -> String {
     let mut expanded = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(start) = rest.find("${") {
         expanded.push_str(&rest[..start]);
         let after = &rest[start + 2..];
-        let Some(end) = after.find('}') else {
+        let Some(end) = closing_brace(after) else {
             expanded.push_str("${");
             rest = after;
             continue;
@@ -30,7 +31,7 @@ pub fn expand_placeholders(text: &str) -> String {
         let value = env::var(name)
             .ok()
             .filter(|value| !value.is_empty())
-            .or_else(|| default.map(str::to_owned));
+            .or_else(|| default.map(expand_placeholders));
         match value {
             Some(value) => expanded.push_str(&value),
             None => {
@@ -43,6 +44,27 @@ pub fn expand_placeholders(text: &str) -> String {
     }
     expanded.push_str(rest);
     expanded
+}
+
+/// The index of the `}` that closes the placeholder `text` starts in, skipping nested ones.
+fn closing_brace(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut index = 0;
+    while index < text.len() {
+        if text[index..].starts_with("${") {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if text[index..].starts_with('}') {
+            if depth == 0 {
+                return Some(index);
+            }
+            depth -= 1;
+        }
+        index += 1;
+    }
+    None
 }
 
 /// Merges `overlay` into `base`: tables merge recursively, every other value of the overlay
@@ -116,6 +138,14 @@ mod tests {
         let expanded =
             expand_placeholders("issuer = \"${EXAMPLE_SUPPORT_UNSET:http://localhost:8080/realms/demo}/token\"");
         assert_eq!(expanded, "issuer = \"http://localhost:8080/realms/demo/token\"");
+    }
+
+    #[test]
+    fn expands_placeholders_nested_in_defaults() {
+        let expanded = expand_placeholders(
+            "token-uri = \"${EXAMPLE_SUPPORT_UNSET:${EXAMPLE_SUPPORT_UNSET_TOO:http://localhost:8080/realms/demo}/token}\"",
+        );
+        assert_eq!(expanded, "token-uri = \"http://localhost:8080/realms/demo/token\"");
     }
 
     #[test]

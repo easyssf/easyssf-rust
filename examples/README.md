@@ -82,8 +82,12 @@ INFO example_resource_server::handler: Security event event="CaepSessionRevoked"
 DEBUG easyssf_receiver_axum: Rejecting a revoked access token subject="33bf4f70-…"
 ```
 
-`GET /health` reports the receiver's contact with Keycloak, its stream and, in the `poll` profile,
-the poller.
+`GET /health` reports the receiver's contact with the transmitter, its stream and, in the `poll`
+profile, the poller (503 when unhealthy). The application works with any SSF transmitter that sends
+CAEP `session-revoked` events and is the issuer of the access tokens: `SSF_TRANSMITTER_ISSUER`,
+`SSF_TOKEN_URI`, `SSF_CLIENT_ID`, `SSF_CLIENT_SECRET` and `SSF_PUSH_URL` override the defaults,
+which are the clients of the `ssf-demo` realm. `SSF_PUSH_URL` is how the transmitter reaches the
+application; for Keycloak in Docker it must be allowed by `ssf.validPushUrls` of the client.
 
 ### Metrics
 
@@ -105,7 +109,7 @@ easyssf_receiver_events{transmitter="default",delivery="push",event="CaepSession
 
 With the profile `poll` the resource server does not register a PUSH stream for its own client.
 It authenticates with the service account of the client `example-poll-receiver` instead, registers a
-POLL stream for it and polls Keycloak for events every two seconds, see
+POLL stream for it and polls the transmitter for events every two seconds, see
 [`config-poll.toml`](example-resource-server/config-poll.toml):
 
 ```sh
@@ -375,11 +379,14 @@ changes to `ssf-demo-realm.json`, stop Keycloak and delete `keycloak/data`.
 
 ## Using another Keycloak
 
-Both applications read the issuer from `KEYCLOAK_ISSUER` (default
-`http://localhost:8080/realms/ssf-demo`), the secret of their own client from `KEYCLOAK_CLIENT_SECRET`
-(the `poll` profile reads the secret of `example-poll-receiver` from `KEYCLOAK_POLL_CLIENT_SECRET`),
-the URL under which Keycloak reaches their push endpoint from `SSF_PUSH_URL` (default
-`http://host.docker.internal:<port>/ssf/push`) and their port from `SERVER_PORT`. The clients need
+The resource server reads the issuer from `SSF_TRANSMITTER_ISSUER` (default
+`http://localhost:8080/realms/ssf-demo`), the token endpoint from `SSF_TOKEN_URI` (default
+`<issuer>/protocol/openid-connect/token`) and its client from `SSF_CLIENT_ID` and
+`SSF_CLIENT_SECRET` (in the `poll` profile the defaults are those of `example-poll-receiver`); it
+is not tied to Keycloak. The OIDC client reads the issuer from `KEYCLOAK_ISSUER` and the secret of
+its client from `KEYCLOAK_CLIENT_SECRET`. Both read the URL under which the transmitter reaches
+their push endpoint from `SSF_PUSH_URL` (default `http://host.docker.internal:<port>/ssf/push`) and
+their port from `SERVER_PORT`. The clients need
 a service account with the client scopes `ssf.read` and `ssf.manage`, and the push URL has to be
 allowed in `ssf.validPushUrls` of the client. The push authorization header is set in the
 `config.toml` of each application. The receiver accepts a plain `http` issuer only on `localhost`;
