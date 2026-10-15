@@ -15,7 +15,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.7.0-alpha.1"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.94"
 license = "Apache-2.0"
@@ -25,11 +25,11 @@ keywords = ["ssf", "caep", "risc", "openid", "security-events"]
 categories = ["authentication", "web-programming"]
 
 [workspace.dependencies]
-easyssf-core = { path = "easyssf-core", version = "0.7.0-alpha.1" }
-easyssf-receiver = { path = "easyssf-receiver", version = "0.7.0-alpha.1", default-features = false }
-easyssf-receiver-sqlx = { path = "easyssf-receiver-sqlx", version = "0.7.0-alpha.1" }
-easyssf-test = { path = "easyssf-test", version = "0.7.0-alpha.1" }
-easyssf-receiver-axum = { path = "easyssf-receiver-axum", version = "0.7.0-alpha.1" }
+easyssf-core = { path = "easyssf-core", version = "0.6.0" }
+easyssf-receiver = { path = "easyssf-receiver", version = "0.6.0", default-features = false }
+easyssf-receiver-sqlx = { path = "easyssf-receiver-sqlx", version = "0.6.0" }
+easyssf-test = { path = "easyssf-test", version = "0.6.0" }
+easyssf-receiver-axum = { path = "easyssf-receiver-axum", version = "0.6.0" }
 example-support = { path = "examples/example-support" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

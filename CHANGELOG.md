@@ -3,7 +3,24 @@
 All notable changes to this project will be documented in this file. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); the version follows the Java library.
 
+The version line starts at 0.6.0, not at 0.1.0: the crates follow the release line of
+[easyssf for Java](https://github.com/easyssf/easyssf), of which this library is a port, as the
+[.NET](https://github.com/easyssf/easyssf-dotnet) and [Go](https://github.com/easyssf/easyssf-go)
+ports do. The port was written against the Java library as it stood for its 0.6.0 release and
+carries that state in full: the same protocol behaviour, the same options and defaults, the same
+database tables. The same version therefore means the same feature level on every side, and a
+reader can hold the changelogs side by side. Versions 0.1.0 to 0.5.0 never existed in Rust. Below
+1.0 a minor version may break the API, as in the Java library; between two minor versions,
+`-alpha.N` prereleases follow the Java development line (`0.7.0-alpha.N` alongside
+`0.7.0-SNAPSHOT`).
+
 ## [Unreleased]
+
+## [0.6.0] - 2026-10-16
+
+The first release: the complete port, at feature parity with easyssf 0.6.0 for Java and .NET.
+Six crates on Rust 1.94 or later, with exactly one crypto backend of jsonwebtoken per build,
+`rust-crypto` by default or `aws-lc-rs`.
 
 ### Added
 

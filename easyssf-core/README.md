@@ -12,7 +12,7 @@ without a receiver, or to write a transmitter.
 
 ```toml
 [dependencies]
-easyssf-core = "0.7.0-alpha.1"
+easyssf-core = "0.6.0"
 ```
 
 The [README of the repository](https://github.com/easyssf/easyssf-rust#readme) explains the whole library. Apache-2.0.

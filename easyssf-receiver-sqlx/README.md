@@ -8,7 +8,7 @@ features; the schema and migration scripts are those of the Java library.
 
 ```toml
 [dependencies]
-easyssf-receiver-sqlx = { version = "0.7.0-alpha.1", features = ["postgres"] }
+easyssf-receiver-sqlx = { version = "0.6.0", features = ["postgres"] }
 ```
 
 Part of [easyssf-rust](https://github.com/easyssf/easyssf-rust), the port of [easyssf for Java](https://github.com/easyssf/easyssf).

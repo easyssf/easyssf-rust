@@ -7,8 +7,8 @@ security event revoked.
 
 ```toml
 [dependencies]
-easyssf-receiver = "0.7.0-alpha.1"
-easyssf-receiver-actix-web = "0.7.0-alpha.1"
+easyssf-receiver = "0.6.0"
+easyssf-receiver-actix-web = "0.6.0"
 ```
 
 Part of [easyssf-rust](https://github.com/easyssf/easyssf-rust), the port of [easyssf for Java](https://github.com/easyssf/easyssf).

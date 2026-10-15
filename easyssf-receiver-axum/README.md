@@ -7,8 +7,8 @@ Leptos and everything else that runs on it: `push_router_for()` for the push end
 
 ```toml
 [dependencies]
-easyssf-receiver = "0.7.0-alpha.1"
-easyssf-receiver-axum = "0.7.0-alpha.1"
+easyssf-receiver = "0.6.0"
+easyssf-receiver-axum = "0.6.0"
 ```
 
 Part of [easyssf-rust](https://github.com/easyssf/easyssf-rust), the port of [easyssf for Java](https://github.com/easyssf/easyssf).

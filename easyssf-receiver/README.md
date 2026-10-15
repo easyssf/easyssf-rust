@@ -19,7 +19,7 @@ receiver.start(); // registers the stream, starts polling
 
 ```toml
 [dependencies]
-easyssf-receiver = "0.7.0-alpha.1"
+easyssf-receiver = "0.6.0"
 ```
 
 The push endpoint, the revocation layer and the session hooks for a web framework are in
