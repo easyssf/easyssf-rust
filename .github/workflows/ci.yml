@@ -35,6 +35,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --features easyssf-receiver/metrics,easyssf-receiver-sqlx/postgres,easyssf-receiver-sqlx/mysql
 
+  deny:
+    name: Licenses and advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
   database:
     name: Stores on PostgreSQL and MySQL
     runs-on: ubuntu-latest
