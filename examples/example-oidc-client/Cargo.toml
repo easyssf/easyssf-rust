@@ -3,7 +3,7 @@ name = "example-oidc-client"
 description = "Example: a web application with OIDC login whose local sessions end when Keycloak revokes the session or the credentials change. Not published."
 version.workspace = true
 edition.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 license.workspace = true
 publish = false
 

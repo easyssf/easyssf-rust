@@ -27,7 +27,7 @@ let app = Router::new().merge(push_router_for(&receiver)); // POST /ssf/push
 | | |
 |---|---|
 | **Status** | Experimental, pre-1.0; the version follows the Java library (`0.7.0-alpha.N`) |
-| **Rust** | 1.88 or later (edition 2024); `easyssf-receiver-sqlx` needs 1.94 (sqlx 0.9) |
+| **Rust** | 1.94 or later (edition 2024; sqlx 0.9 sets the floor) |
 | **License** | Apache-2.0 |
 
 ## Crates

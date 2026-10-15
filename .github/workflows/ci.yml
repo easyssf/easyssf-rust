@@ -31,7 +31,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # easyssf-receiver-sqlx needs 1.94 (sqlx 0.9); the other crates build on 1.88
       - uses: dtolnay/rust-toolchain@1.94
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --features easyssf-receiver/metrics,easyssf-receiver-sqlx/postgres,easyssf-receiver-sqlx/mysql

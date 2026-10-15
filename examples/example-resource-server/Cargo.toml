@@ -3,7 +3,7 @@ name = "example-resource-server"
 description = "Example: a resource server that rejects the access tokens of sessions Keycloak revoked. Not published."
 version.workspace = true
 edition.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 license.workspace = true
 publish = false
 

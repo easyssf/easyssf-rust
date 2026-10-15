@@ -3,7 +3,7 @@ name = "example-scim-provisioning"
 description = "Example: mirrors the users of a SCIM service provider from its SCIM Events (RFC 9967), with a demo transmitter of its own. Not published."
 version.workspace = true
 edition.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 license.workspace = true
 publish = false
 

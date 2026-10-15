@@ -3,7 +3,7 @@ name = "example-support"
 description = "What the example applications share: configuration files with placeholders, profiles and logging. Not published."
 version.workspace = true
 edition.workspace = true
-rust-version = "1.88"
+rust-version.workspace = true
 license.workspace = true
 publish = false
 
