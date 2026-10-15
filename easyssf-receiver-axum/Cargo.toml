@@ -11,7 +11,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = []
+default = ["rust-crypto"]
+# the crypto backend of easyssf-receiver, forwarded so that the crate builds on its own;
+# to use aws-lc-rs, turn the default features off on every easyssf crate and name it on each
+rust-crypto = ["easyssf-receiver/rust-crypto"]
+aws-lc-rs = ["easyssf-receiver/aws-lc-rs"]
 # ends tower-sessions sessions a security event revoked
 tower-sessions = ["dep:tower-sessions", "dep:serde"]
 

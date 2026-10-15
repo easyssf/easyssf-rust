@@ -39,7 +39,9 @@ reqwest = { workspace = true, optional = true, features = ["rustls", "charset", 
 metrics = { workspace = true, optional = true }
 
 [dev-dependencies]
-easyssf-test.workspace = true
+# path only, no version: easyssf-test depends on this crate, and a dev-dependency with a version
+# would keep the cycle in the published manifest, so neither crate could be published first
+easyssf-test = { path = "../easyssf-test" }
 tokio = { workspace = true, features = ["rt-multi-thread", "test-util"] }
 toml = "0.9"
 

@@ -9,7 +9,6 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-include = ["src/**", "sql/**", "Cargo.toml", "README.md"]
 
 [dependencies]
 easyssf-core.workspace = true
@@ -23,7 +22,11 @@ sqlx = { workspace = true, features = ["runtime-tokio"] }
 futures-util.workspace = true
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "rust-crypto"]
+# the crypto backend of easyssf-receiver, forwarded so that the crate builds on its own;
+# to use aws-lc-rs, turn the default features off on every easyssf crate and name it on each
+rust-crypto = ["easyssf-receiver/rust-crypto"]
+aws-lc-rs = ["easyssf-receiver/aws-lc-rs"]
 sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres", "sqlx/tls-rustls-ring"]
 mysql = ["sqlx/mysql", "sqlx/tls-rustls-ring"]

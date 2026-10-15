@@ -237,6 +237,7 @@ has to reject.
 | `easyssf-receiver-axum` | `tower-sessions` | | The session revocation layer. |
 | `easyssf-receiver-actix-web` | `actix-session` | | The session revocation middleware. |
 | `easyssf-receiver-sqlx` | `sqlite`, `postgres`, `mysql` | `sqlite` | The databases. |
+| `easyssf-test`, `easyssf-receiver-sqlx`, `easyssf-receiver-axum`, `easyssf-receiver-actix-web` | `rust-crypto`, `aws-lc-rs` | `rust-crypto` | The backend of `easyssf-receiver`, forwarded so that each crate builds on its own. For aws-lc-rs, turn the default features off on every easyssf crate you depend on and name `aws-lc-rs` on each; one `rust-crypto` left on anywhere brings both backends in, which is a compile error. |
 
 ## Not included (yet)
 

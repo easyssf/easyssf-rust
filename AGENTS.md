@@ -48,8 +48,10 @@ RUSTDOCFLAGS="-D warnings" cargo doc-all
   `aws-lc-rs`, of which exactly one may be on: jsonwebtoken panics at runtime with both, which the
   crate turns into a compile error. The `test-all`, `clippy-all` and `doc-all` aliases in
   `.cargo/config.toml` enable every feature that can be on at once. Features unify across the
-  dependency graph, so `easyssf-test` does not pin a backend either; its own default is
-  `rust-crypto`, switch both crates together.
+  dependency graph: `easyssf-test`, `easyssf-receiver-sqlx`, `easyssf-receiver-axum` and
+  `easyssf-receiver-actix-web` forward both backends and default to `rust-crypto`, so that each
+  crate builds on its own (`cargo package` verifies every crate standalone); switching to
+  `aws-lc-rs` means turning the defaults off on every easyssf crate at once.
 
 - The examples are workspace members and build with everything else; only
   `example-scim-provisioning` has tests, and they run in-process. The two Keycloak examples are

@@ -11,7 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-# the crypto backend of jsonwebtoken, shared with easyssf-receiver; exactly one
+# the crypto backend of easyssf-receiver, forwarded so that the crate builds on its own;
+# to use aws-lc-rs, turn the default features off on every easyssf crate and name it on each
 default = ["rust-crypto"]
 rust-crypto = ["easyssf-receiver/rust-crypto"]
 aws-lc-rs = ["easyssf-receiver/aws-lc-rs"]

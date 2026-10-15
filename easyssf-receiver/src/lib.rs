@@ -16,7 +16,9 @@ use std::time::SystemTime;
 #[cfg(all(feature = "rust-crypto", feature = "aws-lc-rs"))]
 compile_error!(
     "easyssf-receiver: enable exactly one crypto backend, `rust-crypto` (the default) or `aws-lc-rs`; jsonwebtoken \
-     panics with both. Never build this workspace with --all-features, use the `test-all` cargo alias."
+     panics with both. For `aws-lc-rs`, turn the default features off on every easyssf crate (easyssf-test, \
+     easyssf-receiver-sqlx, easyssf-receiver-axum, easyssf-receiver-actix-web forward the backend) and name it on \
+     each. Never build this workspace with --all-features, use the `test-all` cargo alias."
 );
 
 #[cfg(not(any(feature = "rust-crypto", feature = "aws-lc-rs")))]
