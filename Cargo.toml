@@ -55,7 +55,7 @@ actix-web = { version = "4.16", default-features = false }
 actix-session = "0.11"
 sqlx = { version = "0.9", default-features = false }
 rsa = "0.9"
-rand = "0.8"
+rand = "0.10"
 futures-util = { version = "0.3", default-features = false }
 
 [workspace.lints.rust]
