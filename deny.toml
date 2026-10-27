@@ -7,4 +7,10 @@ allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.
 # RUSTSEC-2023-0071 (rsa, Marvin attack) concerns private-key operations, which a receiver never
 # performs: the `rust-crypto` backend of jsonwebtoken only verifies. Choose the `aws-lc-rs`
 # feature of easyssf-receiver to leave the rsa crate out.
-ignore = ["RUSTSEC-2023-0071"]
+#
+# RUSTSEC-2026-0387 (crypto-bigint 0.5, timing variability) reaches the receiver through the p256
+# and p384 crates of jsonwebtoken 11, which still depend on elliptic-curve 0.13; the fixed 0.7 line
+# needs p256 0.14. The receiver only verifies ECDSA signatures, on public keys, signatures and
+# digests that are not secret, so timing variability leaks nothing. Drop the ignore once jsonwebtoken
+# moves to p256 0.14.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387"]
