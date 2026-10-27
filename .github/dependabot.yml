@@ -1,0 +1,49 @@
+# Keeps the Cargo dependencies of the workspace and the GitHub Actions current. Not covered: the
+# postgres and mysql service containers of ci.yml, and the Keycloak of examples/keycloak/compose.yaml,
+# which is the same file as in the Java and Go repositories and moves with them; check the registries
+# for a new release by hand.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      tokio:
+        patterns:
+          - "tokio*"
+          - "futures*"
+      http:
+        patterns:
+          - "http"
+          - "http-body*"
+          - "hyper*"
+          - "reqwest"
+          - "tower*"
+      axum:
+        patterns:
+          - "axum*"
+      actix:
+        patterns:
+          - "actix*"
+      sqlx:
+        patterns:
+          - "sqlx*"
+      crypto:
+        patterns:
+          - "jsonwebtoken"
+          - "rsa"
+          - "rand*"
+          - "rustls*"
+          - "aws-lc*"
+          - "ring"
+      serde:
+        patterns:
+          - "serde*"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
