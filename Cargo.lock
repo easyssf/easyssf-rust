@@ -925,7 +925,7 @@ name = "easyssf-receiver"
 version = "0.6.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "easyssf-core",
  "easyssf-test",
  "encoding_rs",
@@ -1004,7 +1004,7 @@ name = "easyssf-test"
 version = "0.6.0"
 dependencies = [
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "easyssf-core",
  "easyssf-receiver",
  "jsonwebtoken",
@@ -1149,7 +1149,7 @@ name = "example-oidc-client"
 version = "0.6.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "easyssf-receiver",
  "easyssf-receiver-axum",
  "example-support",
@@ -2313,7 +2313,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http 1.5.0",
