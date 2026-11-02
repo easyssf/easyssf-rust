@@ -38,7 +38,7 @@ axum = { workspace = true, features = ["tokio", "http1"] }
 tower = { workspace = true, features = ["util"] }
 tower-sessions = { workspace = true, features = ["memory-store", "axum-core"] }
 http-body-util.workspace = true
-toml = "0.9"
+toml = "1.1"
 
 [lints]
 workspace = true
