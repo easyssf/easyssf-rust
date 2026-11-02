@@ -25,6 +25,24 @@ stream configuration the transmitter returns has its issuer checked, not only a 
 Stopping the registrar lets a call in progress complete and no longer leaves a stream behind.
 `easyssf-test` no longer depends on `rand`, and base64 moves to 0.23.
 
+### Upgrading from 0.6.0
+
+0.7.0 breaks the API in one place: `SsfPollerOptions` has the new field `uri_policy` and
+`SsfHttpConfig` the new field `max_response_size`. A struct literal of either type without
+`..Default::default()` no longer compiles; add it, or set the field.
+
+Stricter by default, without a compile error:
+
+- A configured `poll.endpoint-url` with plain `http` on a host other than a loopback address fails
+  `validate()`, as do issuer and metadata URLs on a host name that merely starts with `127.`. Use
+  `https`, or set `allow-insecure-http` in a test setup.
+- A response of the transmitter larger than 4 MiB fails the call; `http.max-response-size` (or
+  `ReqwestSsfHttpClient::with_max_response_size`) raises the limit.
+- `SsfStreamClient::stream`, `streams`, `update_stream` and `replace_stream` return
+  `SsfStreamError::IssuerMismatch` for a stream with another issuer than the transmitter.
+- `SsfStreamRegistrar::stop` waits up to 5 seconds for a call to the transmitter in progress;
+  `stop_with_timeout` sets another limit.
+
 ### Security
 
 - A host name that merely starts with `127.`, such as `127.attacker.example`, counted as a loopback
