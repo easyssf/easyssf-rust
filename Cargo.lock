@@ -1008,7 +1008,6 @@ dependencies = [
  "easyssf-core",
  "easyssf-receiver",
  "jsonwebtoken",
- "rand 0.8.8",
  "rsa",
  "serde_json",
  "tokio",

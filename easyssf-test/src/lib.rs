@@ -46,7 +46,7 @@ pub struct TestSigningKey {
 impl TestSigningKey {
     /// Generates a key pair; `TestSigningKey::generate(1024, "weak")` is one a receiver refuses.
     pub fn generate(bits: usize, kid: &str) -> Self {
-        let key = rsa::RsaPrivateKey::new(&mut rand::thread_rng(), bits).expect("RSA key");
+        let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, bits).expect("RSA key");
         let pem = key.to_pkcs1_pem(Default::default()).expect("PEM");
         let jwk = json!({
             "kty": "RSA", "use": "sig", "kid": kid,
