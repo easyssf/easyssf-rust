@@ -60,12 +60,17 @@ Rocket, Poem, Salvo and warp need no crate: read the `Authorization` header and 
   document, `401`, `413`, `500` or `503`. The web framework crates run the processing in a spawned
   task, so a transmitter that disconnects does not cancel the handlers.
 - **Discovers the transmitter** from its `.well-known/ssf-configuration`, at the SSF location and
-  at the one OpenID providers tend to use, and holds its issuer and endpoints to `https` unless a
-  loopback address or `allow-insecure-http` says otherwise.
+  at the one OpenID providers tend to use, and holds its issuer and endpoints, the poll endpoint
+  included, to `https` unless a loopback address (`localhost`, `127.0.0.0/8`, `::1`) or
+  `allow-insecure-http` says otherwise. Responses of the transmitter are bounded,
+  `http.max-response-size` (4 MiB by default).
 - **Manages its stream**: looks a stream up by id, or reuses, updates or creates the stream the
-  receiver wants, in the background with retries; `SsfStreamClient` for the management API.
+  receiver wants, in the background with retries; `SsfStreamClient` for the management API, which
+  refuses every stream with another issuer than the transmitter. `stop()` lets a call in progress
+  complete (`stop_with_timeout` sets how long) and deletes a stream created on the way if the
+  stream is deleted on shutdown.
 - **Polls** (RFC 8936) with short or long polling, acknowledges handled SETs and reports invalid
-  ones with the next request, keeps acknowledgements in an `SsfPollAckStore`, backs off on
+  ones, and ones listed under a key other than their `jti`, with the next request, keeps acknowledgements in an `SsfPollAckStore`, backs off on
   `Retry-After`, authenticates with the client credentials grant.
 - **Revokes access tokens and sessions**: `session-revoked` events fill an
   `SsfTokenRevocationStore`; the axum layer and the actix middleware reject tokens with that `sid`

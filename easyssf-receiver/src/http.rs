@@ -98,6 +98,13 @@ pub struct SsfHttpResponse {
 }
 
 impl SsfHttpResponse {
+    /// How large a response body may be unless an [`SsfHttpClient`] is configured otherwise, 4
+    /// MiB. The receiver reads transmitter metadata, JWK Sets, stream configurations and poll
+    /// responses, none of which comes near that, so a larger response is a fault or an attack
+    /// and is cut off rather than buffered. Implementations of [`SsfHttpClient`] should bound
+    /// their responses as well.
+    pub const DEFAULT_MAX_BODY_SIZE: usize = 4 * 1024 * 1024;
+
     /// A response with a status and a body and no headers.
     pub fn new(status: u16, body: impl Into<String>) -> Self {
         Self {
@@ -151,11 +158,15 @@ impl SsfHttpClient for Arc<dyn SsfHttpClient> {
 }
 
 /// [`SsfHttpClient`] on [`reqwest`]. Feature `reqwest`.
+///
+/// A response body larger than [the maximum](Self::with_max_response_size) is not buffered: the
+/// call fails as if no response was received.
 #[cfg(feature = "reqwest")]
 #[derive(Debug, Clone)]
 pub struct ReqwestSsfHttpClient {
     client: reqwest::Client,
     timeout: Duration,
+    max_response_size: usize,
 }
 
 #[cfg(feature = "reqwest")]
@@ -172,13 +183,17 @@ impl ReqwestSsfHttpClient {
             .connect_timeout(timeout)
             .build()
             .expect("a reqwest client with default settings");
-        Self { client, timeout }
+        Self::from_client(client, timeout)
     }
 
     /// A client of your own, for example one with a `User-Agent`; `timeout` applies to requests
     /// that do not set their own.
     pub fn from_client(client: reqwest::Client, timeout: Duration) -> Self {
-        Self { client, timeout }
+        Self {
+            client,
+            timeout,
+            max_response_size: SsfHttpResponse::DEFAULT_MAX_BODY_SIZE,
+        }
     }
 
     /// Sets the `User-Agent` header to send with every request.
@@ -188,10 +203,25 @@ impl ReqwestSsfHttpClient {
             .user_agent(user_agent)
             .build()
             .expect("a reqwest client with a user agent");
-        Self {
-            client,
-            timeout: self.timeout,
-        }
+        Self { client, ..self }
+    }
+
+    /// Bounds the response bodies, [4 MiB](SsfHttpResponse::DEFAULT_MAX_BODY_SIZE) by default. A
+    /// transmitter that sends more is treated as unavailable: the receiver never buffers a
+    /// response of a size the transmitter chooses.
+    ///
+    /// # Panics
+    ///
+    /// If `max_response_size` is zero.
+    pub fn with_max_response_size(mut self, max_response_size: usize) -> Self {
+        assert!(max_response_size > 0, "max_response_size must be positive");
+        self.max_response_size = max_response_size;
+        self
+    }
+
+    /// The largest response body read, in bytes.
+    pub fn max_response_size(&self) -> usize {
+        self.max_response_size
     }
 }
 
@@ -217,16 +247,64 @@ impl SsfHttpClient for ReqwestSsfHttpClient {
         if let Some(body) = request.body {
             builder = builder.body(body);
         }
-        let response = builder.send().await?;
+        let mut response = builder.send().await?;
         let status = response.status().as_u16();
-        let headers = response
+        let headers: Vec<(String, String)> = response
             .headers()
             .iter()
             .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_owned()))
             .collect();
-        let body = response.text().await?;
-        Ok(SsfHttpResponse { status, headers, body })
+        let max = self.max_response_size;
+        // a response that declares its length is refused before it is read, one without
+        // (chunked) is cut off while it is read; dropping the response ends the connection
+        if let Some(declared) = response.content_length()
+            && declared > max as u64
+        {
+            return Err(format!(
+                "The response of {} is {declared} bytes, larger than the {max} bytes accepted",
+                response.url()
+            )
+            .into());
+        }
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if bytes.len() + chunk.len() > max {
+                return Err(format!(
+                    "The response of {} is larger than the {max} bytes accepted and was cut off",
+                    response.url()
+                )
+                .into());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let content_type = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-type"))
+            .map(|(_, value)| value.as_str());
+        let (body, _, _) = charset_of(content_type).decode(&bytes);
+        Ok(SsfHttpResponse {
+            status,
+            headers,
+            body: body.into_owned(),
+        })
     }
+}
+
+/// The charset the `Content-Type` header names, UTF-8 if it names none or an unknown one.
+#[cfg(feature = "reqwest")]
+fn charset_of(content_type: Option<&str>) -> &'static encoding_rs::Encoding {
+    content_type
+        .into_iter()
+        .flat_map(|value| value.split(';'))
+        .map(str::trim)
+        .find_map(|parameter| {
+            let (name, value) = parameter.split_once('=')?;
+            name.trim()
+                .eq_ignore_ascii_case("charset")
+                .then(|| value.trim().trim_matches('"'))
+        })
+        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
+        .unwrap_or(encoding_rs::UTF_8)
 }
 
 #[cfg(test)]

@@ -928,6 +928,7 @@ dependencies = [
  "base64 0.22.1",
  "easyssf-core",
  "easyssf-test",
+ "encoding_rs",
  "humantime-serde",
  "jsonwebtoken",
  "metrics",

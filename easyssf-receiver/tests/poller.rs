@@ -12,10 +12,10 @@ use easyssf_core::SsfDeliveryMethod;
 use easyssf_receiver::BoxError;
 use easyssf_receiver::event::SsfEventContext;
 use easyssf_receiver::http::{SsfHttpClient, SsfHttpRequest, SsfHttpResponse};
-use easyssf_receiver::metrics::SsfReceiverMetrics;
-use easyssf_receiver::poll::{InMemorySsfPollAckStore, SsfPollAckStore, SsfPoller, SsfPollerOptions};
+use easyssf_receiver::metrics::{SsfReceiverMetrics, SsfSetOutcome};
+use easyssf_receiver::poll::{InMemorySsfPollAckStore, PollEndpoint, SsfPollAckStore, SsfPoller, SsfPollerOptions};
 use easyssf_receiver::set::SsfSetProcessor;
-use easyssf_receiver::transmitter::FixedSsfTransmitterTokenProvider;
+use easyssf_receiver::transmitter::{FixedSsfTransmitterTokenProvider, SsfTransmitterUriPolicy};
 use easyssf_test::subjects::iss_sub;
 use easyssf_test::{TestTransmitter, during, eventually};
 use serde_json::json;
@@ -120,6 +120,8 @@ async fn reports_invalid_set_to_the_transmitter() {
     let poller = poller(&transmitter, &recorder);
     let mut claims = transmitter.set_claims("CaepSessionRevoked", Some(iss_sub(transmitter.issuer(), "alice")));
     claims.insert("aud".to_owned(), json!("https://other.example"));
+    // listed under its own jti, or it is rejected for that before the audience is looked at
+    claims.insert("jti".to_owned(), json!("bad"));
     transmitter.queue_set_with_jti("bad", &transmitter.sign_set(&claims));
     transmitter.queue_set_with_jti("garbage", "not a set");
     assert_eq!(poller.poll_now().await.unwrap(), 2);
@@ -135,6 +137,155 @@ async fn reports_invalid_set_to_the_transmitter() {
         "invalid_request"
     );
     assert!(transmitter.acknowledged_sets().is_empty());
+}
+
+#[derive(Default)]
+struct Outcomes(Mutex<Vec<SsfSetOutcome>>);
+
+impl SsfReceiverMetrics for Outcomes {
+    fn set_received(&self, _: Option<&str>, delivery_method: SsfDeliveryMethod, outcome: SsfSetOutcome) {
+        assert_eq!(delivery_method, SsfDeliveryMethod::Poll);
+        self.0.lock().unwrap().push(outcome);
+    }
+}
+
+#[tokio::test]
+async fn reports_set_whose_jti_differs_from_the_key_it_is_listed_under_without_handling_it() {
+    let transmitter = TestTransmitter::new();
+    let recorder = Recorder::default();
+    let outcomes = Arc::new(Outcomes::default());
+    let poller = poller_with(
+        &transmitter,
+        processor(&transmitter).handler(recorder.handler()),
+        SsfPollerOptions {
+            metrics: outcomes.clone(),
+            ..options()
+        },
+    );
+    let claims = transmitter.set_claims("CaepSessionRevoked", Some(iss_sub(transmitter.issuer(), "alice")));
+    let own_jti = claims["jti"].as_str().unwrap().to_owned();
+    transmitter.queue_set_with_jti("other-jti", &transmitter.sign_set(&claims));
+    let valid = queue(&transmitter);
+
+    assert_eq!(poller.poll_now().await.unwrap(), 2);
+
+    // the SET is not handled, and the error names the key so that the transmitter drops it
+    assert_eq!(recorder.jtis(), std::slice::from_ref(&valid));
+    assert_eq!(transmitter.acknowledged_sets(), [valid]);
+    let errors = transmitter.reported_errors();
+    assert_eq!(errors.len(), 1);
+    let (key, error) = &errors[0];
+    assert_eq!(key, "other-jti");
+    assert_eq!(error["err"], "invalid_request");
+    let description = error["description"].as_str().unwrap();
+    assert!(
+        description.contains(&own_jti) && description.contains("other-jti"),
+        "{description}"
+    );
+    assert_eq!(*outcomes.0.lock().unwrap(), [SsfSetOutcome::Invalid]);
+}
+
+/// Records where the requests go and hands them to the transmitter of the tests.
+#[derive(Clone)]
+struct Recording(TestTransmitter, Arc<Mutex<Vec<Url>>>);
+
+#[async_trait]
+impl SsfHttpClient for Recording {
+    async fn execute(&self, request: SsfHttpRequest) -> Result<SsfHttpResponse, BoxError> {
+        self.1.lock().unwrap().push(request.url.clone());
+        self.0.execute(request).await
+    }
+}
+
+fn recording_poller(
+    transmitter: &TestTransmitter,
+    requested: &Arc<Mutex<Vec<Url>>>,
+    endpoint: PollEndpoint,
+    options: SsfPollerOptions,
+) -> SsfPoller {
+    SsfPoller::new(
+        Recording(transmitter.clone(), requested.clone()),
+        FixedSsfTransmitterTokenProvider(TestTransmitter::ACCESS_TOKEN.to_owned()),
+        endpoint,
+        Arc::new(processor(transmitter)),
+        options,
+    )
+}
+
+#[tokio::test]
+async fn does_not_send_the_access_token_to_a_poll_endpoint_without_tls() {
+    let transmitter = TestTransmitter::new();
+    let requested = Arc::new(Mutex::new(Vec::new()));
+    let endpoint = Url::parse("http://transmitter.example/poll").unwrap();
+    let insecure = {
+        let endpoint = endpoint.clone();
+        recording_poller(
+            &transmitter,
+            &requested,
+            Arc::new(move || Some(endpoint.clone())),
+            options(),
+        )
+    };
+    let error = insecure.poll_now().await.unwrap_err().to_string();
+    assert!(
+        error.contains("poll endpoint") && error.contains("must use https"),
+        "{error}"
+    );
+    assert!(requested.lock().unwrap().is_empty());
+    assert_eq!(insecure.last_poll_error(), Some(error));
+
+    // the transmitter of the tests uses https, and any host passes with the insecure policy
+    assert_eq!(poller(&transmitter, &Recorder::default()).poll_now().await.unwrap(), 0);
+    let insecure = {
+        let endpoint = endpoint.clone();
+        recording_poller(
+            &transmitter,
+            &requested,
+            Arc::new(move || Some(endpoint.clone())),
+            SsfPollerOptions {
+                uri_policy: SsfTransmitterUriPolicy::INSECURE,
+                ..options()
+            },
+        )
+    };
+    let _ = insecure.poll_now().await;
+    assert_eq!(*requested.lock().unwrap(), [endpoint]);
+}
+
+#[tokio::test]
+async fn does_not_flush_acknowledgements_on_stop_to_a_poll_endpoint_without_tls() {
+    // the endpoint moves to a host without TLS while acknowledgements are pending, as a changed
+    // stream configuration could make it
+    let transmitter = TestTransmitter::new();
+    let requested = Arc::new(Mutex::new(Vec::new()));
+    let endpoint = Arc::new(Mutex::new(Url::parse(&transmitter.poll_uri()).unwrap()));
+    let store = Arc::new(InMemorySsfPollAckStore::default());
+    let poller = {
+        let endpoint = endpoint.clone();
+        recording_poller(
+            &transmitter,
+            &requested,
+            Arc::new(move || Some(endpoint.lock().unwrap().clone())),
+            SsfPollerOptions {
+                ack_store: store.clone(),
+                initial_delay: Duration::from_secs(3600),
+                ..options()
+            },
+        )
+    };
+    poller.start();
+    let insecure = Url::parse("http://transmitter.example/poll").unwrap();
+    *endpoint.lock().unwrap() = insecure.clone();
+    store
+        .record(insecure.as_str(), easyssf_receiver::poll::SsfPendingAck::ack("jti-1"))
+        .await
+        .unwrap();
+    assert_eq!(poller.pending_ack_count().await, 1);
+
+    poller.stop().await;
+
+    assert!(requested.lock().unwrap().is_empty());
+    assert_eq!(store.size(insecure.as_str()).await.unwrap(), 1);
 }
 
 #[tokio::test]
