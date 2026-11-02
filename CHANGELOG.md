@@ -16,11 +16,14 @@ reader can hold the changelogs side by side. Versions 0.1.0 to 0.5.0 never exist
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-02
+
 The hardening of easyssf 0.7.0 for Java. A host name like `127.attacker.example` no longer passes
 for loopback, the poll endpoint is held to the same URI policy as the metadata endpoints before the
 access token goes to it, and responses from the transmitter are bounded, 4 MiB by default. Every
 stream configuration the transmitter returns has its issuer checked, not only a created one.
 Stopping the registrar lets a call in progress complete and no longer leaves a stream behind.
+`easyssf-test` no longer depends on `rand`, and base64 moves to 0.23.
 
 ### Security
 
@@ -52,6 +55,11 @@ Stopping the registrar lets a call in progress complete and no longer leaves a s
 - `SsfStreamRegistrar::stop` lets a call to the transmitter in progress complete, for up to
   `DEFAULT_STOP_TIMEOUT` (5 seconds), instead of dropping it; `stop_with_timeout` sets another
   limit, `Duration::MAX` none. A call that takes longer is abandoned as before.
+- `easyssf-test` generates its keys with the `OsRng` that rsa re-exports instead of
+  `rand::thread_rng`, and no longer depends on `rand`: rsa 0.9 is built on `rand_core` 0.6, which
+  rand 0.10 does not implement.
+- `easyssf-receiver` and `easyssf-test` use base64 0.23; `easyssf-receiver` with the `reqwest`
+  feature also depends on `encoding_rs`, for the charset of the responses.
 
 ### Fixed
 

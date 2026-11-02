@@ -85,8 +85,8 @@ Rocket, Poem, Salvo and warp need no crate: read the `Authorization` header and 
 
 ```toml
 [dependencies]
-easyssf-receiver = "0.6.0"
-easyssf-receiver-axum = "0.6.0"
+easyssf-receiver = "0.7.0"
+easyssf-receiver-axum = "0.7.0"
 ```
 
 The configuration keys are those of the Spring Boot starter and the .NET options, in kebab-case,
