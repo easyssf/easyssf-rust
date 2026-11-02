@@ -47,3 +47,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    ignore:
+      # the tag is the Rust version: @stable needs no update, and @1.94 of the Minimum Rust version
+      # job is the rust-version of the workspace, raised by hand with Cargo.toml
+      - dependency-name: "dtolnay/rust-toolchain"
