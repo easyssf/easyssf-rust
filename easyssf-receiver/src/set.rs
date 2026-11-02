@@ -129,6 +129,13 @@ pub fn unverified_issuer(encoded_set: &str) -> Option<String> {
     unverified_payload(encoded_set)?.get("iss")?.as_str().map(str::to_owned)
 }
 
+/// Reads the `jti` claim of a SET before it is verified, to compare it with the key a poll
+/// response lists it under. Nothing read this way is trusted. `None` if the SET cannot be parsed or
+/// has no `jti`.
+pub fn unverified_jti(encoded_set: &str) -> Option<String> {
+    unverified_payload(encoded_set)?.get("jti")?.as_str().map(str::to_owned)
+}
+
 /// The claims of a SET without any verification: `None` if it is not a JWS in compact
 /// serialization whose payload is a JSON object. Nothing read this way is trusted.
 pub fn unverified_payload(encoded_set: &str) -> Option<Map<String, Value>> {
@@ -1304,6 +1311,8 @@ mod tests {
         assert_eq!(unverified_issuer("garbage"), None);
         assert_eq!(unverified_issuer(""), None);
         assert_eq!(unverified_issuer("a.b.c.d"), None);
+        assert_eq!(unverified_jti(&set).as_deref(), Some("1"));
+        assert_eq!(unverified_jti("garbage"), None);
         let array = URL_SAFE_NO_PAD.encode(b"[1]");
         assert!(unverified_payload(&format!("h.{array}.s")).is_none());
     }

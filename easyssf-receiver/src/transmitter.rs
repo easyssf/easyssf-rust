@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use easyssf_core::metadata::SsfTransmitterMetadata;
 use serde_json::{Map, Value};
-use url::Url;
+use url::{Host, Url};
 
 use crate::http::{SsfHttpClient, SsfHttpRequest};
 use crate::poll::SsfPoller;
@@ -79,18 +79,26 @@ impl SsfTransmitterUriPolicy {
         url.scheme().eq_ignore_ascii_case("http")
     }
 
-    /// Whether the host of the URL is a loopback address.
+    /// Whether the host of the URL is a loopback address: `localhost` and names under it (RFC
+    /// 6761, section 6.3), an IPv4 address in `127.0.0.0/8` (RFC 1122, section 3.2.1.3) or the
+    /// IPv6 loopback address `::1`, also as the IPv4-mapped `::ffff:127.0.0.1`. A host name that
+    /// merely starts with `127.` is not: it resolves wherever its owner points it.
+    ///
+    /// The `url` crate parses hosts as the WHATWG URL Standard does, so a shorthand such as
+    /// `127.1` is the address `127.0.0.1` here and counts as loopback, unlike in the Java and Go
+    /// libraries, which refuse it: the HTTP client connects to that very address.
     pub fn is_loopback(url: &Url) -> bool {
-        let Some(host) = url.host_str() else {
-            return false;
-        };
-        let host = host.to_ascii_lowercase();
-        host == "localhost"
-            || host.ends_with(".localhost")
-            || host.starts_with("127.")
-            || host == "[::1]"
-            || host == "::1"
-            || host == "[0:0:0:0:0:0:0:1]"
+        match url.host() {
+            Some(Host::Domain(name)) => {
+                let name = name.to_ascii_lowercase();
+                name == "localhost" || name.ends_with(".localhost")
+            }
+            Some(Host::Ipv4(address)) => address.is_loopback(),
+            Some(Host::Ipv6(address)) => {
+                address.is_loopback() || address.to_ipv4_mapped().is_some_and(|mapped| mapped.is_loopback())
+            }
+            None => false,
+        }
     }
 
     /// Checks the issuer of a transmitter and returns it as a URL.
@@ -899,6 +907,56 @@ mod tests {
         ] {
             assert!(policy.check_issuer(issuer).is_ok(), "{issuer}");
         }
+    }
+
+    /// The same cases as `TestURIPolicyRequiresHTTPSExceptOnLoopback` of the Go library, so that
+    /// the libraries agree on what a loopback address is.
+    #[test]
+    fn loopback_is_localhost_the_ipv4_loopback_network_and_the_ipv6_loopback_address() {
+        let policy = SsfTransmitterUriPolicy::DEFAULT;
+        for issuer in [
+            "http://localhost:8080/realms/demo",
+            "http://LocalHost/x",
+            "http://127.0.0.1:8080/x",
+            "http://127.255.255.254/x",
+            "http://127.1.2.3/x",
+            "http://[::1]:8080/x",
+            "http://[0:0:0:0:0:0:0:1]/x",
+            "http://[::ffff:127.0.0.1]/x",
+            "http://app.localhost/x",
+            // the url crate takes these for 127.0.0.1 and 127.0.0.0, and so does the HTTP client
+            "http://127.1/x",
+            "http://127.0.0/x",
+        ] {
+            assert!(policy.check_issuer(issuer).is_ok(), "{issuer}");
+            assert!(
+                SsfTransmitterUriPolicy::is_loopback(&Url::parse(issuer).unwrap()),
+                "{issuer}"
+            );
+        }
+    }
+
+    #[test]
+    fn host_name_that_merely_looks_like_a_loopback_address_is_not_loopback() {
+        let policy = SsfTransmitterUriPolicy::DEFAULT;
+        for issuer in [
+            "http://127.attacker.example/x",
+            "http://127.0.0.1.attacker.example/x",
+            // 0.0.0.127 for the url crate
+            "http://127/x",
+            "http://localhost.attacker.example/x",
+            "http://[::2]/x",
+            "http://[::ffff:10.0.0.1]/x",
+            "http://10.0.0.1/x",
+        ] {
+            assert!(policy.check_issuer(issuer).is_err(), "{issuer}");
+            assert!(
+                !SsfTransmitterUriPolicy::is_loopback(&Url::parse(issuer).unwrap()),
+                "{issuer}"
+            );
+        }
+        // not an address, and not a host name either
+        assert!(policy.check_issuer("http://127.0.0.256/x").is_err());
     }
 
     #[test]

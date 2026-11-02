@@ -98,6 +98,54 @@ fn config_parses_toml_with_defaults_and_kebab_case_keys() {
 }
 
 #[test]
+fn response_size_for_calls_to_the_transmitter_is_configurable() {
+    assert_eq!(
+        SsfReceiverConfig::default().http.max_response_size,
+        easyssf_receiver::http::SsfHttpResponse::DEFAULT_MAX_BODY_SIZE
+    );
+    let config: SsfReceiverConfig = toml::from_str(
+        r#"
+        transmitter-issuer = "https://idp.example"
+        expected-audience = "app"
+        [http]
+        max-response-size = 1048576
+        "#,
+    )
+    .unwrap();
+    assert_eq!(config.http.max_response_size, 1024 * 1024);
+    config.validate().unwrap();
+
+    let mut config = config;
+    config.http.max_response_size = 0;
+    assert!(
+        config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("http.max-response-size")
+    );
+}
+
+#[test]
+fn poll_endpoint_without_tls_is_refused_unless_insecure_http_is_allowed() {
+    let mut config = SsfReceiverConfig::for_transmitter("https://idp.example");
+    config.transmitter.delivery_method = SsfDeliveryMethodConfig::Poll;
+    config.transmitter.expected_audience = Some("a".into());
+    config.transmitter.poll.endpoint_url = Some(url::Url::parse("http://idp.example/poll").unwrap());
+    let failures = config.validate().unwrap_err().to_string();
+    assert!(
+        failures.contains("poll.endpoint-url") && failures.contains("must use https"),
+        "{failures}"
+    );
+
+    config.transmitter.poll.endpoint_url = Some(url::Url::parse("http://localhost:8080/poll").unwrap());
+    config.validate().unwrap();
+    config.transmitter.poll.endpoint_url = Some(url::Url::parse("http://idp.example/poll").unwrap());
+    config.transmitter.allow_insecure_http = true;
+    config.validate().unwrap();
+}
+
+#[test]
 fn validation_reports_every_failure() {
     let config: SsfReceiverConfig = toml::from_str(
         r#"

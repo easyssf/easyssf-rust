@@ -2,10 +2,14 @@
 
 mod common;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use async_trait::async_trait;
 use easyssf_core::stream::{SsfStreamConfiguration, SsfStreamStatus};
+use easyssf_receiver::BoxError;
+use easyssf_receiver::http::{SsfHttpClient, SsfHttpRequest, SsfHttpResponse};
 use easyssf_receiver::stream::{
     SsfReceiverStream, SsfStreamClient, SsfStreamError, SsfStreamRegistrar, SsfStreamRegistrarState,
 };
@@ -13,7 +17,7 @@ use easyssf_receiver::transmitter::{
     ClientCredentialsSsfTransmitterTokenProvider, SsfClientCredentialsOptions, SsfTransmitterTokenProvider,
 };
 use easyssf_test::subjects::email;
-use easyssf_test::{TestTransmitter, eventually};
+use easyssf_test::{TestTransmitter, during, eventually};
 use serde_json::{Map, Value, json};
 use url::Url;
 
@@ -349,4 +353,290 @@ async fn registrar_deletes_managed_stream_on_shutdown_if_asked() {
     keep.stop().await;
     assert_eq!(transmitter.streams().len(), 1);
     let _ = json!({});
+}
+
+#[tokio::test]
+async fn refuses_existing_streams_with_another_issuer() {
+    let transmitter = TestTransmitter::new();
+    transmitter.set_stream_issuer(Some("https://other.example"));
+    let existing =
+        transmitter.add_stream(SsfStreamConfiguration::poll(&["CaepSessionRevoked".to_owned()], None).claims());
+    let stream_id = existing["stream_id"].as_str().unwrap();
+    let client = client(&transmitter);
+    let mismatch = |result: Result<SsfStreamConfiguration, SsfStreamError>| {
+        matches!(result, Err(SsfStreamError::IssuerMismatch { .. }))
+    };
+    assert!(mismatch(client.stream(stream_id).await));
+    assert!(matches!(
+        client.streams().await,
+        Err(SsfStreamError::IssuerMismatch { .. })
+    ));
+    let mut changes = Map::new();
+    changes.insert("description".to_owned(), json!("x"));
+    assert!(mismatch(client.update_stream(stream_id, &changes).await));
+    assert!(mismatch(
+        client
+            .replace_stream(
+                stream_id,
+                &SsfStreamConfiguration::poll(&["CaepSessionRevoked".to_owned()], None)
+            )
+            .await
+    ));
+}
+
+#[tokio::test]
+async fn registrar_gives_up_on_existing_stream_with_another_issuer_without_deleting_it() {
+    let transmitter = TestTransmitter::new();
+    transmitter.set_stream_issuer(Some("https://other.example"));
+    let existing =
+        transmitter.add_stream(SsfStreamConfiguration::poll(&["CaepSessionRevoked".to_owned()], None).claims());
+    let stream = Arc::new(SsfReceiverStream::new());
+    let registrar = SsfStreamRegistrar::for_existing_stream(
+        client(&transmitter),
+        stream.clone(),
+        existing["stream_id"].as_str().unwrap(),
+    )
+    .with_initial_retry_delay(Duration::from_millis(50));
+    registrar.start();
+    eventually(Duration::from_secs(5), "the registrar gave up", || {
+        registrar.state() == SsfStreamRegistrarState::Failed
+    })
+    .await;
+    registrar.stop().await;
+    assert!(registrar.last_error().unwrap().contains("https://other.example"));
+    assert!(stream.stream_id().is_none());
+    // the stream is not this registrar's to delete
+    assert_eq!(transmitter.streams().len(), 1);
+
+    // nor is one the receiver manages that it found at the transmitter
+    let managed = SsfStreamRegistrar::for_managed_stream(
+        client(&transmitter),
+        Arc::new(SsfReceiverStream::new()),
+        SsfStreamConfiguration::poll(&["CaepSessionRevoked".to_owned()], None),
+    )
+    .with_delete_on_shutdown(true);
+    assert!(matches!(
+        managed.register().await,
+        Err(SsfStreamError::IssuerMismatch { .. })
+    ));
+    managed.stop().await;
+    assert_eq!(transmitter.streams().len(), 1);
+}
+
+/// Hands the requests to the transmitter of the tests and records them; holds a list of the
+/// streams (`GET .../streams`) until [opened](Self::open), as a transmitter that is slow to answer.
+#[derive(Clone)]
+struct Gated {
+    transmitter: TestTransmitter,
+    requests: Arc<Mutex<Vec<String>>>,
+    held: Arc<AtomicUsize>,
+    open: tokio::sync::watch::Sender<bool>,
+}
+
+impl Gated {
+    fn new(transmitter: &TestTransmitter, open: bool) -> Self {
+        Self {
+            transmitter: transmitter.clone(),
+            requests: Arc::default(),
+            held: Arc::default(),
+            open: tokio::sync::watch::Sender::new(open),
+        }
+    }
+
+    fn open(&self) {
+        self.open.send_replace(true);
+    }
+
+    fn requests(&self) -> usize {
+        self.requests.lock().unwrap().len()
+    }
+
+    fn client(&self) -> Arc<SsfStreamClient> {
+        Arc::new(SsfStreamClient::new(
+            self.clone(),
+            token_provider(&self.transmitter),
+            common::metadata_resolver(&self.transmitter),
+        ))
+    }
+}
+
+#[async_trait]
+impl SsfHttpClient for Gated {
+    async fn execute(&self, request: SsfHttpRequest) -> Result<SsfHttpResponse, BoxError> {
+        self.requests
+            .lock()
+            .unwrap()
+            .push(format!("{} {}", request.method, request.url.path()));
+        if request.method == "GET" && request.url.path().ends_with("/streams") {
+            self.held.fetch_add(1, Ordering::SeqCst);
+            let _ = self.open.subscribe().wait_for(|open| *open).await;
+        }
+        self.transmitter.execute(request).await
+    }
+}
+
+fn poll_stream() -> SsfStreamConfiguration {
+    SsfStreamConfiguration::poll(&["CaepSessionRevoked".to_owned()], None)
+}
+
+#[tokio::test]
+async fn registrar_start_is_idempotent_and_stop_ends_the_registration() {
+    let transmitter = TestTransmitter::new();
+    transmitter.set_available(false);
+    let stream = Arc::new(SsfReceiverStream::new());
+    let registrar = SsfStreamRegistrar::for_managed_stream(client(&transmitter), stream.clone(), poll_stream())
+        .with_initial_retry_delay(Duration::from_millis(20));
+    registrar.start();
+    registrar.start();
+    assert!(registrar.is_running());
+    // the metadata cannot be fetched, every attempt asks for it again
+    eventually(Duration::from_secs(5), "three attempts", || transmitter.requests() >= 3).await;
+
+    registrar.stop().await;
+    registrar.stop().await;
+    assert!(!registrar.is_running());
+    let requests = transmitter.requests();
+    during(Duration::from_millis(200), "no more attempts", || {
+        transmitter.requests() == requests
+    })
+    .await;
+    assert!(stream.stream_id().is_none());
+}
+
+#[tokio::test]
+async fn registration_that_completes_after_stop_publishes_nothing() {
+    let transmitter = TestTransmitter::new();
+    let http = Gated::new(&transmitter, false);
+    let stream = Arc::new(SsfReceiverStream::new());
+    let registered = Arc::new(AtomicUsize::new(0));
+    let registrar = SsfStreamRegistrar::for_managed_stream(http.client(), stream.clone(), poll_stream())
+        .with_delete_on_shutdown(true);
+    let counter = registered.clone();
+    registrar.add_listener(move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+    });
+    registrar.start();
+    eventually(Duration::from_secs(5), "the list of streams requested", || {
+        http.held.load(Ordering::SeqCst) == 1
+    })
+    .await;
+
+    // stop() lets the call complete, which creates the stream
+    let stopping = tokio::spawn({
+        let registrar = registrar.clone();
+        async move { registrar.stop_with_timeout(Duration::MAX).await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!stopping.is_finished());
+    http.open();
+    tokio::time::timeout(Duration::from_secs(5), stopping)
+        .await
+        .unwrap()
+        .unwrap();
+
+    // the stream created on the way is deleted, as it would have been on shutdown
+    assert!(http.requests.lock().unwrap().iter().any(|r| r.starts_with("POST")));
+    assert!(transmitter.streams().is_empty());
+    assert_eq!(registered.load(Ordering::SeqCst), 0);
+    assert!(stream.stream_id().is_none());
+    assert_ne!(registrar.state(), SsfStreamRegistrarState::Registered);
+}
+
+#[tokio::test]
+async fn stop_with_timeout_abandons_a_call_that_takes_longer() {
+    let transmitter = TestTransmitter::new();
+    let http = Gated::new(&transmitter, false);
+    let stream = Arc::new(SsfReceiverStream::new());
+    let registrar = SsfStreamRegistrar::for_managed_stream(http.client(), stream.clone(), poll_stream())
+        .with_delete_on_shutdown(true);
+    registrar.start();
+    eventually(Duration::from_secs(5), "the list of streams requested", || {
+        http.held.load(Ordering::SeqCst) == 1
+    })
+    .await;
+
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        registrar.stop_with_timeout(Duration::from_millis(100)),
+    )
+    .await
+    .unwrap();
+    assert!(!registrar.is_running());
+
+    // the call was dropped, nothing follows it
+    http.open();
+    during(Duration::from_millis(200), "no stream created", || {
+        transmitter.streams().is_empty()
+    })
+    .await;
+    assert!(stream.stream_id().is_none());
+}
+
+#[tokio::test]
+async fn start_during_stop_waits_for_it() {
+    let transmitter = TestTransmitter::new();
+    let http = Gated::new(&transmitter, false);
+    let stream = Arc::new(SsfReceiverStream::new());
+    let registrar = SsfStreamRegistrar::for_managed_stream(http.client(), stream.clone(), poll_stream())
+        .with_delete_on_shutdown(true);
+    registrar.start();
+    eventually(Duration::from_secs(5), "the list of streams requested", || {
+        http.held.load(Ordering::SeqCst) == 1
+    })
+    .await;
+    let stopping = tokio::spawn({
+        let registrar = registrar.clone();
+        async move { registrar.stop_with_timeout(Duration::MAX).await }
+    });
+    eventually(Duration::from_secs(5), "stop() took the registration", || {
+        !registrar.is_running()
+    })
+    .await;
+
+    registrar.start();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        http.held.load(Ordering::SeqCst),
+        1,
+        "the new registration waits for stop()"
+    );
+    http.open();
+    tokio::time::timeout(Duration::from_secs(5), stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    eventually(Duration::from_secs(5), "the new registration", || {
+        registrar.state() == SsfStreamRegistrarState::Registered
+    })
+    .await;
+
+    // the stream of the stopped registration is gone, the new one is the receiver's
+    let streams = transmitter.streams();
+    assert_eq!(streams.len(), 1);
+    assert_eq!(streams[0]["stream_id"].as_str(), stream.stream_id().as_deref());
+    registrar.stop().await;
+    assert!(transmitter.streams().is_empty());
+}
+
+#[tokio::test]
+async fn stop_deletes_only_a_stream_published_since_the_last_stop() {
+    let transmitter = TestTransmitter::new();
+    let http = Gated::new(&transmitter, true);
+    let stream = Arc::new(SsfReceiverStream::new());
+    let registrar = SsfStreamRegistrar::for_managed_stream(http.client(), stream.clone(), poll_stream())
+        .with_delete_on_shutdown(true);
+
+    // never started: nothing to delete
+    registrar.stop().await;
+    assert_eq!(http.requests(), 0);
+
+    registrar.register().await.unwrap();
+    registrar.stop().await;
+    assert!(transmitter.streams().is_empty());
+    let requests = http.requests();
+
+    // the receiver keeps the stream id, a second stop() does not delete it again
+    assert!(stream.stream_id().is_some());
+    registrar.stop().await;
+    assert_eq!(http.requests(), requests);
 }

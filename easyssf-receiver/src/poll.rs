@@ -13,9 +13,9 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::http::{SsfHttpClient, SsfHttpRequest, SsfHttpResponse};
-use crate::metrics::{NoopSsfReceiverMetrics, SsfReceiverMetrics};
-use crate::set::{SsfSetProcessingError, SsfSetProcessor, SsfSetVerificationError};
-use crate::transmitter::SsfTransmitterTokenProvider;
+use crate::metrics::{NoopSsfReceiverMetrics, SsfReceiverMetrics, SsfSetOutcome};
+use crate::set::{SsfErrorCode, SsfSetProcessingError, SsfSetProcessor, SsfSetVerificationError, unverified_jti};
+use crate::transmitter::{SsfTransmitterTokenProvider, SsfTransmitterUriPolicy};
 use crate::{BoxError, Clock, system_clock};
 
 /// What the poller owes the transmitter for a SET it fetched (RFC 8936, section 2.2): an
@@ -183,6 +183,11 @@ pub struct SsfPollerOptions {
     /// The longest pause a `Retry-After` header or the rate limit fallback can cause, 5 minutes
     /// by default.
     pub max_pause: Duration,
+    /// What the poll endpoint must look like before the access token is sent to it, the
+    /// [default](SsfTransmitterUriPolicy::DEFAULT) unless set: `https`, or `http` on loopback
+    /// addresses only. [`INSECURE`](SsfTransmitterUriPolicy::INSECURE) for a transmitter without
+    /// TLS in a test setup.
+    pub uri_policy: SsfTransmitterUriPolicy,
     /// The clock the pauses the transmitter asks for are measured by.
     pub clock: Clock,
 }
@@ -202,6 +207,7 @@ impl Default for SsfPollerOptions {
             transmitter: None,
             rate_limit_fallback: None,
             max_pause: Duration::from_secs(300),
+            uri_policy: SsfTransmitterUriPolicy::DEFAULT,
             clock: system_clock(),
         }
     }
@@ -248,6 +254,8 @@ struct Inner {
     task: Mutex<Option<PollerTask>>,
     wake_requested: AtomicBool,
     woken: Notify,
+    /// The endpoint the URI policy last accepted, so that it is checked once, not per poll.
+    checked_endpoint: Mutex<Option<Url>>,
 }
 
 #[derive(Clone, Copy)]
@@ -269,6 +277,11 @@ struct PollResult {
 /// transmitter to answer right away (`returnImmediately: true`, short polling). With
 /// [long polling](SsfPollerOptions::long_polling_hold) it keeps one request outstanding instead.
 /// A backlog is fetched with immediate requests in both modes.
+///
+/// The poll request carries the access token, so the poll endpoint is held to the
+/// [URI policy](SsfPollerOptions::uri_policy) of the transmitter's metadata endpoints before the
+/// first request goes out: `https`, or `http` on loopback addresses only, whether the endpoint was
+/// configured or taken from the stream configuration the transmitter returned.
 ///
 /// Until the poll endpoint of the stream is known, typically because the `SsfStreamRegistrar` is
 /// still registering the stream when the poller starts, the poller looks again every
@@ -331,6 +344,7 @@ impl SsfPoller {
                 task: Mutex::new(None),
                 wake_requested: AtomicBool::new(false),
                 woken: Notify::new(),
+                checked_endpoint: Mutex::new(None),
             }),
         }
     }
@@ -365,7 +379,10 @@ impl SsfPoller {
             return;
         };
         task.cancel.cancel();
-        let _ = tokio::time::timeout(Duration::from_secs(5), task.handle).await;
+        if tokio::time::timeout(Duration::from_secs(5), task.handle).await.is_err() {
+            // the task ends at its next await, a handler that blocks the thread holds it up
+            tracing::warn!("The polling task is still handling a SET; it ends after the handlers return");
+        }
         if self.inner.options.flush_on_stop {
             self.flush_acks().await;
         }
@@ -586,6 +603,28 @@ impl SsfPoller {
             Value::String(set) => set.clone(),
             other => other.to_string(),
         };
+        // the key of a SET in the response is its jti (RFC 8936, section 2.4). A SET listed under
+        // another key would be acknowledged under a key that is not its own, so it is reported
+        // under that key instead of handled; one that does not parse is left to the verifier,
+        // which rejects it the same way
+        if let Some(set_jti) = unverified_jti(&encoded_set)
+            && set_jti != jti
+        {
+            let description = format!("The SET has the jti '{set_jti}' but is listed under '{jti}'");
+            tracing::warn!(jti, description, "Rejecting polled SET");
+            let options = &self.inner.options;
+            options.metrics.set_received(
+                options.transmitter.as_deref(),
+                SsfDeliveryMethod::Poll,
+                SsfSetOutcome::Invalid,
+            );
+            let ack = SsfPendingAck::error(jti, SsfErrorCode::InvalidRequest.as_str(), Some(&description));
+            if let Err(error) = options.ack_store.record(key, ack).await {
+                tracing::warn!(jti, %error, "Could not record the error report of the polled SET");
+            }
+            self.report_pending(key).await;
+            return;
+        }
         let ack = match self
             .inner
             .processor
@@ -625,6 +664,27 @@ impl SsfPoller {
         }
     }
 
+    /// The access token goes to the endpoint, so the endpoint is held to the URI policy first.
+    /// Checked once per endpoint: the supplier returns the same one request after request, and a
+    /// changed one is checked again. The poll fails if the endpoint does not pass, and is tried
+    /// again at the interval.
+    fn check_endpoint(&self, endpoint: &Url) -> Result<(), SsfPollError> {
+        let mut checked = self.inner.checked_endpoint.lock().unwrap();
+        if checked.as_ref() == Some(endpoint) {
+            return Ok(());
+        }
+        self.inner
+            .options
+            .uri_policy
+            .check_endpoint(endpoint, "The poll endpoint")
+            .map_err(|message| SsfPollError::new(message, None))?;
+        *checked = Some(endpoint.clone());
+        Ok(())
+    }
+
+    /// The one method that sends a poll request, for a poll as well as for the acknowledgements
+    /// flushed on [`stop`](Self::stop): the endpoint is checked here, so that no path sends the
+    /// access token around the policy.
     async fn request(
         &self,
         endpoint: &Url,
@@ -632,6 +692,7 @@ impl SsfPoller {
         max_events: usize,
         return_immediately: bool,
     ) -> Result<Map<String, Value>, SsfPollError> {
+        self.check_endpoint(endpoint)?;
         let options = &self.inner.options;
         let pending = options
             .ack_store

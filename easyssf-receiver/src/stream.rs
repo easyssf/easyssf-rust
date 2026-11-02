@@ -2,6 +2,7 @@
 //! registration and the verification events.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -32,13 +33,14 @@ pub enum SsfStreamError {
         #[source]
         source: Option<BoxError>,
     },
-    /// The transmitter created a stream whose issuer is not the issuer the transmitter metadata
-    /// was obtained from (SSF 1.0, section 8.1.1.1). Such a stream must not be used.
-    #[error("The transmitter created stream {} with the issuer '{}' instead of '{expected_issuer}'", stream.stream_id().unwrap_or(""), stream.issuer().unwrap_or(""))]
+    /// The transmitter returned a stream whose issuer is not the issuer the transmitter metadata
+    /// was obtained from (SSF 1.0, section 8.1.1). Such a stream must not be used: its SETs would
+    /// not verify.
+    #[error("The transmitter returned stream {} with the issuer '{}' instead of '{expected_issuer}'", stream.stream_id().unwrap_or(""), stream.issuer().unwrap_or(""))]
     IssuerMismatch {
         /// The issuer of the transmitter.
         expected_issuer: String,
-        /// The stream the transmitter created, for example to delete it.
+        /// The stream the transmitter returned, for example to delete it if it was created.
         stream: SsfStreamConfiguration,
     },
 }
@@ -62,7 +64,9 @@ impl SsfStreamError {
 }
 
 /// Client for the stream management API of the transmitter (SSF 1.0, section 8.1). The
-/// endpoints are discovered from the transmitter metadata.
+/// endpoints are discovered from the transmitter metadata. Every stream configuration the
+/// transmitter returns is checked to carry the issuer of the metadata before it is accepted
+/// (section 8.1.1): the SETs of a stream with another issuer would not verify.
 pub struct SsfStreamClient {
     http: Arc<dyn SsfHttpClient>,
     token_provider: Arc<dyn SsfTransmitterTokenProvider>,
@@ -85,6 +89,10 @@ impl SsfStreamClient {
     }
 
     /// The streams of this receiver.
+    ///
+    /// # Errors
+    ///
+    /// [`SsfStreamError::IssuerMismatch`] if a stream has another issuer than the transmitter.
     pub async fn streams(&self) -> Result<Vec<SsfStreamConfiguration>, SsfStreamError> {
         let body = self.exchange("GET", self.configuration_endpoint().await?, None).await?;
         if body.trim().is_empty() {
@@ -93,7 +101,7 @@ impl SsfStreamClient {
         let parsed: Value = serde_json::from_str(&body).map_err(|e| {
             SsfStreamError::call("The transmitter returned an invalid list of streams", 0, Some(e.into()))
         })?;
-        Ok(match parsed {
+        let streams = match parsed {
             Value::Array(streams) => streams
                 .into_iter()
                 .filter_map(|stream| match stream {
@@ -109,10 +117,18 @@ impl SsfStreamClient {
                     None,
                 ));
             }
-        })
+        };
+        for stream in &streams {
+            self.check_issuer(stream).await?;
+        }
+        Ok(streams)
     }
 
     /// The stream with the given identifier.
+    ///
+    /// # Errors
+    ///
+    /// [`SsfStreamError::IssuerMismatch`] if the stream has another issuer than the transmitter.
     pub async fn stream(&self, stream_id: &str) -> Result<SsfStreamConfiguration, SsfStreamError> {
         let body = self
             .exchange(
@@ -121,7 +137,7 @@ impl SsfStreamClient {
                 None,
             )
             .await?;
-        Ok(SsfStreamConfiguration::new(parse(&body)?))
+        self.checked(&body).await
     }
 
     /// Creates a stream, see [`SsfStreamConfiguration::push`] and [`SsfStreamConfiguration::poll`].
@@ -137,18 +153,14 @@ impl SsfStreamClient {
         let body = self
             .exchange("POST", self.configuration_endpoint().await?, Some(stream.claims()))
             .await?;
-        let created = SsfStreamConfiguration::new(parse(&body)?);
-        let issuer = self.metadata().await?.issuer().to_owned();
-        if created.issuer() != Some(issuer.as_str()) {
-            return Err(SsfStreamError::IssuerMismatch {
-                expected_issuer: issuer,
-                stream: created,
-            });
-        }
-        Ok(created)
+        self.checked(&body).await
     }
 
     /// Updates the given members of a stream, the others are left as they are.
+    ///
+    /// # Errors
+    ///
+    /// [`SsfStreamError::IssuerMismatch`] if the stream has another issuer than the transmitter.
     pub async fn update_stream(
         &self,
         stream_id: &str,
@@ -161,10 +173,14 @@ impl SsfStreamClient {
                 Some(&with_stream_id(changes, stream_id)),
             )
             .await?;
-        Ok(SsfStreamConfiguration::new(parse(&body)?))
+        self.checked(&body).await
     }
 
     /// Replaces the configuration of a stream.
+    ///
+    /// # Errors
+    ///
+    /// [`SsfStreamError::IssuerMismatch`] if the stream has another issuer than the transmitter.
     pub async fn replace_stream(
         &self,
         stream_id: &str,
@@ -177,7 +193,28 @@ impl SsfStreamClient {
                 Some(&with_stream_id(stream.claims(), stream_id)),
             )
             .await?;
-        Ok(SsfStreamConfiguration::new(parse(&body)?))
+        self.checked(&body).await
+    }
+
+    /// Parses a stream configuration and [checks its issuer](Self::check_issuer).
+    async fn checked(&self, body: &str) -> Result<SsfStreamConfiguration, SsfStreamError> {
+        let stream = SsfStreamConfiguration::new(parse(body)?);
+        self.check_issuer(&stream).await?;
+        Ok(stream)
+    }
+
+    /// A stream belongs to the transmitter the metadata was obtained from (SSF 1.0, section 8.1.1,
+    /// `iss`); SETs of a stream with another issuer would not verify against that transmitter's
+    /// keys and issuer, so such a stream is refused wherever it comes from.
+    async fn check_issuer(&self, stream: &SsfStreamConfiguration) -> Result<(), SsfStreamError> {
+        let issuer = self.metadata().await?.issuer().to_owned();
+        if stream.issuer() != Some(issuer.as_str()) {
+            return Err(SsfStreamError::IssuerMismatch {
+                expected_issuer: issuer,
+                stream: stream.clone(),
+            });
+        }
+        Ok(())
     }
 
     /// Deletes a stream.
@@ -576,6 +613,13 @@ struct RegistrarTask {
     handle: tokio::task::JoinHandle<()>,
 }
 
+/// The outcome of a look-up: the stream, and whether it was created on the way.
+struct Registration {
+    stream: SsfStreamConfiguration,
+    action: &'static str,
+    created: bool,
+}
+
 /// Makes the stream of this receiver known after [`start`](Self::start), without holding the
 /// startup of the application up: the transmitter is called in the background and retried until
 /// it answers.
@@ -586,6 +630,12 @@ struct RegistrarTask {
 ///
 /// [Listeners](Self::add_listener) learn when the stream is registered; `SsfTransmitter` uses
 /// that to have the poller fetch right away instead of an interval later.
+///
+/// [`stop`](Self::stop) lets a call to the transmitter in progress complete, for a while: a
+/// registration stopped meanwhile publishes nothing and deletes a stream it created on the way if
+/// the registrar [deletes on shutdown](Self::with_delete_on_shutdown). The registration has ended
+/// when `stop` returns, and a [`start`](Self::start) during `stop` waits for it, so two
+/// registrations never run at the same time.
 pub struct SsfStreamRegistrar {
     client: Arc<SsfStreamClient>,
     receiver_stream: Arc<SsfReceiverStream>,
@@ -596,10 +646,19 @@ pub struct SsfStreamRegistrar {
     last_error: Mutex<Option<String>>,
     listeners: Mutex<Vec<SsfStreamRegistrarListener>>,
     task: Mutex<Option<RegistrarTask>>,
+    /// Held by [`stop`](Self::stop) until it is done; a registration started meanwhile waits
+    /// for it.
+    lifecycle: tokio::sync::Mutex<()>,
+    /// Whether a stream was published since the last [`stop`](Self::stop): the receiver keeps
+    /// the stream after `stop`, and only one published since is deleted, not again one that a
+    /// previous `stop` deleted.
+    published: AtomicBool,
 }
 
 impl SsfStreamRegistrar {
     const MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
+    /// How long [`stop`](Self::stop) waits for a call to the transmitter in progress.
+    pub const DEFAULT_STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
     /// Looks up the stream with the given identifier.
     pub fn for_existing_stream(
@@ -631,6 +690,8 @@ impl SsfStreamRegistrar {
             last_error: Mutex::new(None),
             listeners: Mutex::new(Vec::new()),
             task: Mutex::new(None),
+            lifecycle: tokio::sync::Mutex::new(()),
+            published: AtomicBool::new(false),
         })
     }
 
@@ -657,7 +718,8 @@ impl SsfStreamRegistrar {
     }
 
     /// Starts looking up or registering the stream in the background. Needs a tokio runtime.
-    /// Calling it again while running has no effect.
+    /// Calling it again while running has no effect; while [`stop`](Self::stop) is in progress,
+    /// the registration begins once it is done.
     pub fn start(self: &Arc<Self>) {
         let mut task = self.task.lock().unwrap();
         if task.is_some() {
@@ -668,10 +730,13 @@ impl SsfStreamRegistrar {
         let registrar = self.clone();
         let token = cancel.clone();
         let handle = tokio::spawn(async move {
+            // a stop() in progress completes first, with the deletes it makes; this registration
+            // may be the one it stops
             tokio::select! {
-                _ = registrar.register_with_retries() => {}
-                _ = token.cancelled() => {}
+                lifecycle = registrar.lifecycle.lock() => drop(lifecycle),
+                _ = token.cancelled() => return,
             }
+            registrar.register_with_retries(&token).await;
         });
         *task = Some(RegistrarTask { cancel, handle });
     }
@@ -692,15 +757,43 @@ impl SsfStreamRegistrar {
         self.task.lock().unwrap().is_some()
     }
 
+    /// Stops the background registration, waiting up to
+    /// [`DEFAULT_STOP_TIMEOUT`](Self::DEFAULT_STOP_TIMEOUT) for a call to the transmitter in
+    /// progress, and deletes the stream if asked to, see
+    /// [`with_delete_on_shutdown`](Self::with_delete_on_shutdown) and
+    /// [`stop_with_timeout`](Self::stop_with_timeout).
+    pub async fn stop(&self) {
+        self.stop_with_timeout(Self::DEFAULT_STOP_TIMEOUT).await;
+    }
+
     /// Stops the background registration and deletes the stream if asked to, see
     /// [`with_delete_on_shutdown`](Self::with_delete_on_shutdown).
-    pub async fn stop(&self) {
+    ///
+    /// A call to the transmitter in progress is given `timeout` to complete; the registration then
+    /// publishes nothing and deletes a stream it created on the way if the registrar deletes on
+    /// shutdown. `Duration::MAX` waits as long as the call takes, which the timeout of the HTTP
+    /// client bounds. A call that takes longer is abandoned: a stream the transmitter creates for
+    /// it is not known to the receiver and stays at the transmitter.
+    ///
+    /// Only a stream published since the last `stop` is deleted.
+    pub async fn stop_with_timeout(&self, timeout: Duration) {
+        let _lifecycle = self.lifecycle.lock().await;
         let task = self.task.lock().unwrap().take();
-        if let Some(task) = task {
+        if let Some(mut task) = task {
             task.cancel.cancel();
-            let _ = task.handle.await;
+            if tokio::time::timeout(timeout, &mut task.handle).await.is_err() {
+                tracing::warn!(
+                    ?timeout,
+                    "The registration of the SSF stream did not end in time and is abandoned; a stream the \
+                     transmitter creates for it is left behind"
+                );
+                task.handle.abort();
+                let _ = task.handle.await;
+            }
         }
+        let published = self.published.swap(false, Ordering::SeqCst);
         if self.delete_on_shutdown
+            && published
             && matches!(self.mode, RegistrarMode::Managed(_))
             && let Some(stream_id) = self.receiver_stream.stream_id()
         {
@@ -711,25 +804,38 @@ impl SsfStreamRegistrar {
         }
     }
 
-    async fn register_with_retries(&self) {
+    async fn register_with_retries(&self, cancel: &CancellationToken) {
         let mut delay = self.initial_retry_delay;
-        loop {
-            match self.register().await {
-                Ok(_) => return,
-                Err(SsfStreamError::IssuerMismatch { stream, .. }) => {
-                    // trying again would only create another stream that must not be used
-                    let error = SsfStreamError::IssuerMismatch {
-                        expected_issuer: String::new(),
-                        stream: stream.clone(),
-                    };
+        while !cancel.is_cancelled() {
+            // not cancelled while the transmitter is called, so that a stream created on the
+            // way is known
+            let result = self.look_up().await;
+            if cancel.is_cancelled() {
+                // stopped while the transmitter was called: the result is not published, and a
+                // stream created on the way is not left behind
+                if let Ok(registration) = result
+                    && registration.created
+                    && self.delete_on_shutdown
+                    && let Some(stream_id) = registration.stream.stream_id()
+                {
+                    tracing::info!(
+                        stream = stream_id,
+                        "Deleting SSF stream, created by a registration that was stopped before it could publish it"
+                    );
+                    self.delete_quietly(stream_id).await;
+                }
+                return;
+            }
+            match result {
+                Ok(registration) => {
+                    self.publish(&registration);
+                    return;
+                }
+                Err(error @ SsfStreamError::IssuerMismatch { .. }) => {
+                    // trying again would only find or create the same stream
                     tracing::error!(%error, "Not using the SSF stream");
                     *self.last_error.lock().unwrap() = Some(error.to_string());
                     *self.state.lock().unwrap() = SsfStreamRegistrarState::Failed;
-                    if let Some(stream_id) = stream.stream_id()
-                        && let Err(error) = self.client.delete_stream(stream_id).await
-                    {
-                        tracing::warn!(stream = stream_id, %error, "Could not delete SSF stream");
-                    }
                     return;
                 }
                 Err(error) => {
@@ -737,42 +843,94 @@ impl SsfStreamRegistrar {
                     tracing::warn!(retry_in = ?delay, %error, "Could not set up the SSF stream, trying again");
                 }
             }
-            tokio::time::sleep(delay).await;
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = cancel.cancelled() => return,
+            }
             delay = (delay * 2).min(Self::MAX_RETRY_DELAY);
         }
     }
 
-    /// Looks up or registers the stream once.
+    /// Looks up or registers the stream once and publishes it.
+    ///
+    /// # Errors
+    ///
+    /// [`SsfStreamError::IssuerMismatch`] if the stream has another issuer than the transmitter;
+    /// a stream created on the way is deleted again.
     pub async fn register(&self) -> Result<SsfStreamConfiguration, SsfStreamError> {
-        let (stream, action) = match &self.mode {
-            RegistrarMode::Existing(stream_id) => (self.client.stream(stream_id).await?, "Using"),
-            RegistrarMode::Managed(desired) => {
-                let streams = self.client.streams().await?;
-                let existing = streams.iter().find(|stream| has_desired_delivery(stream, desired));
-                match existing {
-                    Some(existing) if has_desired_events(existing, desired) => (existing.clone(), "Using existing"),
-                    Some(existing) => (
-                        self.client
-                            .update_stream(existing.stream_id().unwrap_or(""), &changes(desired))
-                            .await?,
-                        "Updated",
-                    ),
-                    None => match self.client.create_stream(desired).await {
-                        Ok(created) => (created, "Created"),
-                        // the transmitter allows a single stream per receiver and it is configured
-                        // differently
-                        Err(error) if error.status() == 409 && streams.len() == 1 => (
-                            self.client
-                                .update_stream(streams[0].stream_id().unwrap_or(""), &changes(desired))
-                                .await?,
-                            "Updated",
-                        ),
-                        Err(error) => return Err(error),
-                    },
-                }
+        let registration = self.look_up().await?;
+        self.publish(&registration);
+        Ok(registration.stream)
+    }
+
+    async fn look_up(&self) -> Result<Registration, SsfStreamError> {
+        let desired = match &self.mode {
+            RegistrarMode::Existing(stream_id) => {
+                return Ok(Registration {
+                    stream: self.client.stream(stream_id).await?,
+                    action: "Using",
+                    created: false,
+                });
             }
+            RegistrarMode::Managed(desired) => desired,
         };
+        let streams = self.client.streams().await?;
+        let existing = streams.iter().find(|stream| has_desired_delivery(stream, desired));
+        let (stream, action, created) = match existing {
+            Some(existing) if has_desired_events(existing, desired) => (existing.clone(), "Using existing", false),
+            Some(existing) => (
+                self.client
+                    .update_stream(existing.stream_id().unwrap_or(""), &changes(desired))
+                    .await?,
+                "Updated",
+                false,
+            ),
+            None => match self.client.create_stream(desired).await {
+                Ok(created) => (created, "Created", true),
+                Err(SsfStreamError::IssuerMismatch {
+                    expected_issuer,
+                    stream,
+                }) => {
+                    // the stream was created but must not be used, and trying again would only
+                    // create another one
+                    if let Some(stream_id) = stream.stream_id() {
+                        self.delete_quietly(stream_id).await;
+                    }
+                    return Err(SsfStreamError::IssuerMismatch {
+                        expected_issuer,
+                        stream,
+                    });
+                }
+                // the transmitter allows a single stream per receiver and it is configured
+                // differently
+                Err(error) if error.status() == 409 && streams.len() == 1 => (
+                    self.client
+                        .update_stream(streams[0].stream_id().unwrap_or(""), &changes(desired))
+                        .await?,
+                    "Updated",
+                    false,
+                ),
+                Err(error) => return Err(error),
+            },
+        };
+        Ok(Registration {
+            stream,
+            action,
+            created,
+        })
+    }
+
+    async fn delete_quietly(&self, stream_id: &str) {
+        if let Err(error) = self.client.delete_stream(stream_id).await {
+            tracing::warn!(stream = stream_id, %error, "Could not delete SSF stream");
+        }
+    }
+
+    /// Publishes the stream and tells the listeners.
+    fn publish(&self, registration: &Registration) {
+        let Registration { stream, action, .. } = registration;
         self.receiver_stream.set_configuration(stream.clone());
+        self.published.store(true, Ordering::SeqCst);
         tracing::info!(
             stream = stream.stream_id().unwrap_or(""),
             delivery = stream.delivery_method().unwrap_or(""),
@@ -785,9 +943,8 @@ impl SsfStreamRegistrar {
         *self.state.lock().unwrap() = SsfStreamRegistrarState::Registered;
         let listeners = self.listeners.lock().unwrap().clone();
         for listener in listeners {
-            listener(&stream);
+            listener(stream);
         }
-        Ok(stream)
     }
 }
 

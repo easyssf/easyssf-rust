@@ -16,6 +16,56 @@ reader can hold the changelogs side by side. Versions 0.1.0 to 0.5.0 never exist
 
 ## [Unreleased]
 
+The hardening of easyssf 0.7.0 for Java. A host name like `127.attacker.example` no longer passes
+for loopback, the poll endpoint is held to the same URI policy as the metadata endpoints before the
+access token goes to it, and responses from the transmitter are bounded, 4 MiB by default. Every
+stream configuration the transmitter returns has its issuer checked, not only a created one.
+Stopping the registrar lets a call in progress complete and no longer leaves a stream behind.
+
+### Security
+
+- A host name that merely starts with `127.`, such as `127.attacker.example`, counted as a loopback
+  address and was allowed to use plain `http` under the default URI policy.
+  `SsfTransmitterUriPolicy::is_loopback` now takes only `localhost` and names under it, IPv4
+  addresses in `127.0.0.0/8` and `::1` (also as the IPv4-mapped `::ffff:127.0.0.1`), the rule of
+  the Java and Go libraries. Hosts are parsed as the url crate does, so the shorthand `127.1` is
+  `127.0.0.1` and counts as loopback, where the Java and Go libraries refuse it.
+- The poll endpoint is held to the URI policy of the transmitter's metadata endpoints before the
+  access token is sent to it, whether it was configured (`poll.endpoint-url`, checked by
+  `validate()`) or taken from the stream configuration the transmitter returned: `https`, or
+  `http` on loopback addresses only, unless `allow-insecure-http` is set. New option:
+  `SsfPollerOptions::uri_policy`, which `SsfReceiver` sets from `allow-insecure-http`.
+- Response bodies `ReqwestSsfHttpClient` reads from the transmitter (metadata, JWK Set, stream
+  configurations, poll responses) are bounded, 4 MiB by default; a larger response fails the call
+  as if the transmitter were unavailable instead of being buffered. New API:
+  `ReqwestSsfHttpClient::with_max_response_size`, `SsfHttpResponse::DEFAULT_MAX_BODY_SIZE` for
+  other `SsfHttpClient` implementations, and the setting `http.max-response-size`. The body is
+  decoded in the charset of its `Content-Type`, UTF-8 by default.
+
+### Changed
+
+- `SsfStreamClient` checks the issuer of every stream configuration the transmitter returns, not
+  only of a created one: `stream`, `streams`, `update_stream` and `replace_stream` return
+  `SsfStreamError::IssuerMismatch` as `create_stream` did, as the SETs of a stream with another
+  issuer would not verify. `SsfStreamRegistrar` deletes a stream it created with the wrong issuer,
+  as before, and leaves an existing one alone; it fails without retrying either way.
+- `SsfStreamRegistrar::stop` lets a call to the transmitter in progress complete, for up to
+  `DEFAULT_STOP_TIMEOUT` (5 seconds), instead of dropping it; `stop_with_timeout` sets another
+  limit, `Duration::MAX` none. A call that takes longer is abandoned as before.
+
+### Fixed
+
+- A SET the poll response lists under a key other than its `jti` (RFC 8936, section 2.4) is
+  reported to the transmitter as `invalid_request` under that key instead of being handled and
+  acknowledged under a key that is not its own. New: `set::unverified_jti`.
+- A registration that `SsfStreamRegistrar::stop` ends after the transmitter created its stream
+  publishes nothing and deletes that stream if the registrar deletes on shutdown, where it left the
+  stream behind. A `start()` while `stop()` is in progress waits for it, so two registrations never
+  run at once. `stop()` deletes only a stream published since the last `stop()`, not again the one
+  a previous `stop()` deleted, nor one when the registrar never ran.
+- `SsfPoller::stop` logs when the polling task is still busy after five seconds.
+- The `SsfStreamError::IssuerMismatch` the registrar reported named an empty expected issuer.
+
 ## [0.6.0] - 2026-10-16
 
 The first release: the complete port, at feature parity with easyssf 0.6.0 for Java and .NET.

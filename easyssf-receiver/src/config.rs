@@ -235,6 +235,11 @@ impl SsfReceiverConfig {
         if self.http.timeout.is_zero() {
             failures.push(format!("{CONFIGURATION_SECTION}.http.timeout: must be positive"));
         }
+        if self.http.max_response_size == 0 {
+            failures.push(format!(
+                "{CONFIGURATION_SECTION}.http.max-response-size: must be positive"
+            ));
+        }
         if self.revocation.ttl.is_zero() {
             failures.push(format!("{CONFIGURATION_SECTION}.revocation.ttl: must be positive"));
         }
@@ -427,6 +432,12 @@ impl SsfTransmitterConfig {
             ));
         }
         if self.delivery_method == SsfDeliveryMethodConfig::Poll {
+            // the access token goes to the poll endpoint
+            if let Some(url) = &self.poll.endpoint_url
+                && let Err(e) = policy.check_endpoint(url, "The poll endpoint")
+            {
+                failures.push(format!("{prefix}poll.endpoint-url: {e}"));
+            }
             if self.poll.endpoint_url.is_none() && !self.registers_stream() {
                 failures.push(format!(
                     "{prefix}poll.endpoint-url: POLL delivery needs the poll endpoint of the stream: set {prefix}poll.endpoint-url, \
@@ -729,6 +740,10 @@ pub struct SsfHttpConfig {
     pub timeout: Duration,
     /// `User-Agent` header for calls to the transmitter. None is sent when not set.
     pub user_agent: Option<String>,
+    /// The largest response body accepted from the transmitter, in bytes; a larger response fails
+    /// the call. Metadata, JWK Sets, stream configurations and poll responses stay far below the
+    /// default of 4 MiB.
+    pub max_response_size: usize,
 }
 
 impl Default for SsfHttpConfig {
@@ -736,6 +751,7 @@ impl Default for SsfHttpConfig {
         Self {
             timeout: Duration::from_secs(5),
             user_agent: None,
+            max_response_size: crate::http::SsfHttpResponse::DEFAULT_MAX_BODY_SIZE,
         }
     }
 }

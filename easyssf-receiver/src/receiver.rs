@@ -258,7 +258,8 @@ impl SsfReceiverBuilder {
 
 #[cfg(feature = "reqwest")]
 fn default_http_client(config: &SsfReceiverConfig) -> Result<Arc<dyn SsfHttpClient>, SsfReceiverConfigError> {
-    let mut client = crate::http::ReqwestSsfHttpClient::with_timeout(config.http.timeout);
+    let mut client = crate::http::ReqwestSsfHttpClient::with_timeout(config.http.timeout)
+        .with_max_response_size(config.http.max_response_size);
     if let Some(user_agent) = config.http.user_agent.as_deref().filter(|ua| !ua.trim().is_empty()) {
         client = client.with_user_agent(user_agent);
     }
@@ -396,6 +397,7 @@ pub fn transmitter_builder(
             long_polling_hold: poll.long_polling.then_some(poll.long_polling_hold),
             rate_limit_fallback: poll.rate_limit.fallback_backoff,
             max_pause: poll.rate_limit.max_backoff,
+            uri_policy: config.uri_policy(),
             ..SsfPollerOptions::default()
         };
         if let Some(ack_store) = ack_store {
