@@ -13,4 +13,10 @@ allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.
 # needs p256 0.14. The receiver only verifies ECDSA signatures, on public keys, signatures and
 # digests that are not secret, so timing variability leaks nothing. Drop the ignore once jsonwebtoken
 # moves to p256 0.14.
-ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387"]
+#
+# RUSTSEC-2026-0459 (bundled SQLite before 3.54.0, uninitialised page cache with a crafted -wal
+# file) reaches easyssf-receiver-sqlx through sqlx-sqlite 0.9.0, which caps libsqlite3-sys below
+# 0.38; the fix is in 0.39. Only a process that opens a database and -wal file written by a less
+# trusted party is exposed; the stores open the database the operator configures, and the tests run
+# on SQLite in memory. Drop the ignore once sqlx allows libsqlite3-sys 0.39.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387", "RUSTSEC-2026-0459"]
