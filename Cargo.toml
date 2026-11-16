@@ -33,7 +33,7 @@ easyssf-receiver-axum = { path = "easyssf-receiver-axum", version = "0.7.0" }
 example-support = { path = "examples/example-support" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
-jsonwebtoken = { version = "11", default-features = false }
+jsonwebtoken = { version = "12", default-features = false }
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
 tokio-util = { version = "0.7", default-features = false }
 tracing = "0.1"
@@ -55,7 +55,7 @@ tower-sessions = { version = "0.15", default-features = false }
 actix-web = { version = "4.16", default-features = false }
 actix-session = "0.11"
 sqlx = { version = "0.9", default-features = false }
-rsa = { version = "0.9", features = ["getrandom"] }
+rsa = { version = "0.10", features = ["getrandom"] }
 futures-util = { version = "0.3", default-features = false }
 
 [workspace.lints.rust]
