@@ -16,6 +16,16 @@ reader can hold the changelogs side by side. Versions 0.1.0 to 0.5.0 never exist
 
 ## [Unreleased]
 
+### Changed
+
+- `easyssf-receiver` and `easyssf-test` use jsonwebtoken 12, which builds on rsa 0.10 and p256
+  0.14. Its types are part of the API (`supported_algorithm`, `rsa_key_bits`,
+  `TestTransmitter::jwk_set`): an application that names them moves to jsonwebtoken 12 as well.
+  With it the `rust-crypto` backend no longer carries RUSTSEC-2023-0071 (rsa, Marvin attack) and
+  RUSTSEC-2026-0387 (crypto-bigint 0.5).
+- `easyssf-test` generates its keys with rsa 0.10 and the `SysRng` of `getrandom`, on which it now
+  depends: `rand_core` 0.10 has no `OsRng` any more.
+
 ## [0.7.0] - 2026-11-02
 
 The hardening of easyssf 0.7.0 for Java. A host name like `127.attacker.example` no longer passes

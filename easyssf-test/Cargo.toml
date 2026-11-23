@@ -23,6 +23,7 @@ easyssf-receiver.workspace = true
 serde_json.workspace = true
 jsonwebtoken = { workspace = true, features = ["use_pem"] }
 rsa.workspace = true
+getrandom.workspace = true
 base64.workspace = true
 uuid.workspace = true
 url.workspace = true
