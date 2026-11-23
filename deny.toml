@@ -19,4 +19,14 @@ allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.
 # 0.38; the fix is in 0.39. Only a process that opens a database and -wal file written by a less
 # trusted party is exposed; the stores open the database the operator configures, and the tests run
 # on SQLite in memory. Drop the ignore once sqlx allows libsqlite3-sys 0.39.
-ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387", "RUSTSEC-2026-0459"]
+#
+# RUSTSEC-2026-0543 (chrono, unmaintained) is informational, no vulnerability is reported. chrono
+# reaches the workspace only through oauth2 5 and openidconnect 4 of example-oidc-client, which is
+# not published; no easyssf crate depends on it. Drop the ignore once openidconnect moves off chrono.
+#
+# RUSTSEC-2026-0542 (humantime, unmaintained) is informational as well and follows from the chrono
+# advisory: it calls humantime a wrapper of chrono, but humantime 2.4.0 has no dependencies at all.
+# easyssf-receiver uses it through humantime-serde for the durations of `SsfReceiverConfig`, on
+# values the operator configures. Drop the ignore once the advisory is withdrawn or the durations
+# are parsed by something else.
+ignore = ["RUSTSEC-2023-0071", "RUSTSEC-2026-0387", "RUSTSEC-2026-0459", "RUSTSEC-2026-0542", "RUSTSEC-2026-0543"]
